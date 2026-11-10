@@ -1,0 +1,15 @@
+{
+  "name": "learnmate-engineering",
+  "version": "1.0.0",
+  "description": "LearnMate AI workspace engineering plugin providing project rules, specialized skills, and subagent role profiles.",
+  "logo": "assets/logo.svg",
+  "author": {
+    "name": "LearnMate AI Engineering",
+    "url": "https://github.com/learnmate-ai/learnmate-ai"
+  },
+  "homepage": "https://github.com/learnmate-ai/learnmate-ai",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/learnmate-ai/learnmate-ai.git"
+  }
+}
