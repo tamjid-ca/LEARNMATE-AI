@@ -35,7 +35,7 @@
 }
 ```
 
-## 3. Implemented Endpoints (Through State 09)
+## 3. Implemented Endpoints (Through State 10)
 
 | Method & Route | Auth | Description |
 | :--- | :--- | :--- |
@@ -103,6 +103,14 @@
 | `GET /api/v1/documents/[documentId]` | Authenticated (Owner) | Returns document metadata, processing/extraction/chunking status, and indexed chunks (`FR-DOC-004`, `FR-DOC-011`). |
 | `POST /api/v1/documents/[documentId]` | Authenticated (Owner) | Executes `<untrusted_document_chunk>` sandboxed RAG Q&A with page citations (`action: 'qa'`) or generates derivative study notes, quizzes, or flashcards (`action: 'generate'` — `FR-DOC-007..009`, `FR-AI-008`). |
 | `DELETE /api/v1/documents/[documentId]` | Authenticated (Owner) | Deletes an uploaded document and purges its indexed `documentChunks` (`FR-DOC-010`). |
+| `GET /api/v1/study-plans` | Authenticated | Lists the authenticated student's study plans and returns the active plan's full schedule, calendar buckets, weekly milestones, feasibility telemetry, and verified adaptive learning signals (`FR-PLAN-001..005`). |
+| `POST /api/v1/study-plans` | Authenticated | Creates a new personalized preparation plan using deterministic daily scheduling (`scheduler-engine.ts`), verified weak-topic/overdue-flashcard prioritization (`FR-PLAN-009..011`), and AI advisory summary (`FR-PLAN-001..004`). |
+| `GET /api/v1/study-plans/[planId]` | Authenticated (Owner) | Retrieves a study plan's tasks, calendar date buckets, weekly milestones, feasibility report, and verified adaptive signals (`FR-PLAN-005`). |
+| `PATCH /api/v1/study-plans/[planId]` | Authenticated (Owner) | Updates plan settings, recalculates the schedule when target date or daily study minutes change (`action: 'recalculate'`), or reschedules missed/skipped tasks (`action: 'reschedule_missed'` — `FR-PLAN-006`, `FR-PLAN-008`). |
+| `POST /api/v1/study-plans/[planId]` | Authenticated (Owner) | Appends a custom manual study task to an existing preparation roadmap (`FR-PLAN-007`). |
+| `DELETE /api/v1/study-plans/[planId]` | Authenticated (Owner) | Deletes a study plan and cascades deletion across its `studyTasks`. |
+| `PATCH /api/v1/study-tasks/[taskId]` | Authenticated (Owner) | Marks a study task `completed`, `skipped`, `rescheduled`, or `pending`, or manually edits its title, date, or duration (`FR-PLAN-006`, `FR-PLAN-007`). |
+| `DELETE /api/v1/study-tasks/[taskId]` | Authenticated (Owner) | Deletes a study task and updates the parent plan's completion percentage. |
 
 ## 4. Planned Endpoint Groups (States 04–12)
 

@@ -9,9 +9,9 @@ Deployment: Vercel
 
 ## Current State
 
-CURRENT_STATE: 09
+CURRENT_STATE: 10
 STATUS: COMPLETE
-LAST_COMPLETED_STATE: 09
+LAST_COMPLETED_STATE: 10
 
 ## Product Requirements
 
@@ -71,26 +71,33 @@ Decisions: docs/DECISIONS.md
   - Implemented `MongooseDocumentRepository` and `InMemoryDocumentRepository` (`src/modules/documents/document-repository.ts`) persisting `uploadedMaterials` and `documentChunks`.
   - Implemented `document-service.ts` (`src/modules/documents/document-service.ts`) enforcing durable status transitions (`uploaded -> extracting -> chunking -> indexing -> ready`), strict user ownership isolation (`FR-DOC-011`), grounded Q&A, derivative generation (`summary`, `notes`, `quiz`, `flashcards`), and document deletion with chunk index cleanup (`FR-DOC-010`).
   - Built `/api/v1/documents` and `/api/v1/documents/[documentId]` Route Handlers, plus the interactive Student Document & Grounded RAG Workspace UI (`/documents`).
+- **State 10 — Personalized Study Planner**:
+  - Implemented strict Zod schemas (`src/lib/validators/planner.ts`) for study plan creation, configuration updates, schedule recalculation (`action: 'recalculate'`), missed-task rescheduling (`action: 'reschedule_missed'`), and manual task CRUD (`FR-PLAN-001..008`).
+  - Implemented the deterministic preparation roadmap & scheduling engine (`src/modules/planner/scheduler-engine.ts`) allocating daily tasks (`learn_topic`, `revision`, `practice_quiz`, `flashcard_review`, `mock_exam`, `final_revision`) across available study days (`availableDaysOfWeek`) and `dailyStudyMinutes`, building weekly milestones, and enforcing `FR-PLAN-011` (never inventing official examination weightings when `syllabusWeightVerified` is false).
+  - Implemented `MongooseStudyPlanRepository` and `InMemoryStudyPlanRepository` (`src/modules/planner/planner-repository.ts`) persisting `studyPlans` and `studyTasks`.
+  - Implemented `planner-service.ts` (`src/modules/planner/planner-service.ts`) integrating verified student performance signals (`quizAttempts.weakTopicIds` and overdue/difficult `flashcards` — `FR-PLAN-009`, `FR-PLAN-010`) with AI advisor summaries (`executeStructuredAITask` for `taskType: 'planner'`).
+  - Built `/api/v1/study-plans`, `/api/v1/study-plans/[planId]`, and `/api/v1/study-tasks/[taskId]` Route Handlers, plus the interactive Student Study Planner UI (`/planner`) with List, Calendar, and Roadmap/Milestones views (`FR-PLAN-005`).
 
 ## Current Implementation
 
-- Completed State 09 (Document Management and RAG).
-- Ready to transition to State 10 (Personalized Study Planner) upon user instruction.
+- Completed State 10 (Personalized Study Planner).
+- Ready to transition to State 11 (Analytics, Notifications and Gamification) upon user instruction.
 
 ## Technical Decisions
 
 - **ADR-001..007**: Modular monolith on Next.js App Router, `npm`, 27 normalized Mongoose collections, OpenRouter gateway, hybrid RAG, deterministic SM-2/scheduler, pluggable storage.
 - **State 09 Grounded RAG & Prompt-Injection Defense Architecture**: Every retrieved document chunk is sanitized (`sanitizeUntrustedChunkText`) and wrapped inside `<untrusted_document_chunk index="N" page="P" section="S">` before interpolation into the `document_qa` prompt template, preventing untrusted PDF/DOCX/TXT passages from overriding system instructions. `getActiveRetrievalMode()` reports `'keyword'` unless both `OPENROUTER_EMBEDDING_MODEL` and `ATLAS_VECTOR_INDEX_NAME` are configured (`FR-DOC-011`).
+- **State 10 Deterministic Scheduling & Honest Syllabus Weighting (`FR-PLAN-011`)**: `scheduler-engine.ts` computes all calendar dates, daily minute capacities, and weekly milestones deterministically. Official syllabus priority scores are applied strictly when `topic.syllabusWeightVerified === true`; otherwise topics are ordered by topological prerequisites, verified quiz weak-topic diagnostics, due spaced-repetition flashcards, and student proficiency estimates.
 
 ## Database Status
 
-- Completed collections: All 27 collections compiled into Mongoose models (`src/models/index.ts`); active repositories implemented for `users`, `educationSystems`, `educationLevels`, `examinations`, `subjects`, `chapters`, `topics`, `promptTemplates`, `aiUsageLogs`, `appSettings`, `auditLogs`, `conversations`, `messages`, `generatedContents`, `feedbackReports`, `quizzes`, `questions`, `quizAttempts`, `flashcardDecks`, `flashcards`, `reviewLogs`, `uploadedMaterials`, and `documentChunks`.
-- Pending collections: `studyPlans`, `studyTasks` (State 10); `progressRecords`, `notifications` (State 11).
+- Completed collections: All 27 collections compiled into Mongoose models (`src/models/index.ts`); active repositories implemented for `users`, `educationSystems`, `educationLevels`, `examinations`, `subjects`, `chapters`, `topics`, `promptTemplates`, `aiUsageLogs`, `appSettings`, `auditLogs`, `conversations`, `messages`, `generatedContents`, `feedbackReports`, `quizzes`, `questions`, `quizAttempts`, `flashcardDecks`, `flashcards`, `reviewLogs`, `uploadedMaterials`, `documentChunks`, `studyPlans`, and `studyTasks`.
+- Pending collections: `progressRecords`, `notifications` (State 11).
 - Required indexes and migrations: All compound indexes registered in `SCHEMA_REGISTRY` and compiled onto Mongoose schemas.
 
 ## Integrations
 
-- MongoDB: CONFIGURED (`.env.local` `MONGODB_URI` present; active repositories for Auth, Curriculum, AI, Tutor/Materials, Quizzes/Exams, Flashcards/Reviews, and Documents/RAG)
+- MongoDB: CONFIGURED (`.env.local` `MONGODB_URI` present; active repositories for Auth, Curriculum, AI, Tutor/Materials, Quizzes/Exams, Flashcards/Reviews, Documents/RAG, and Study Planner)
 - OpenRouter: CONFIGURED (`.env.local` `OPENROUTER_API_KEY` present; centralized gateway active in `src/lib/ai/openrouter-client.ts` & `src/modules/ai/ai-service.ts`)
 - Storage: NOT_CONFIGURED (`BLOB_READ_WRITE_TOKEN` empty; local disk metadata adapter used in dev)
 - Vercel: NOT_CONFIGURED
@@ -102,13 +109,13 @@ Decisions: docs/DECISIONS.md
   - `npm run lint` (`node scripts/lint.mjs`)
   - `npm test` (`vitest run`)
   - `npm run build` (`next build`)
-- Passed tests: 38/38 unit & integration tests across `state-01-architecture.test.ts` (6), `state-02-scaffold.test.ts` (3), `state-03-auth-onboarding.test.ts` (6), `state-04-curriculum-cms.test.ts` (5), `state-05-ai-infrastructure.test.ts` (5), `state-06-tutor-materials.test.ts` (4), `state-07-quizzes-exams.test.ts` (3), `state-08-flashcards-sm2.test.ts` (3), and `state-09-documents-rag.test.ts` (3); 0 lint or typecheck errors; production build succeeded across all 60 routes.
+- Passed tests: 41/41 unit & integration tests across `state-01-architecture.test.ts` (6), `state-02-scaffold.test.ts` (3), `state-03-auth-onboarding.test.ts` (6), `state-04-curriculum-cms.test.ts` (5), `state-05-ai-infrastructure.test.ts` (5), `state-06-tutor-materials.test.ts` (4), `state-07-quizzes-exams.test.ts` (3), `state-08-flashcards-sm2.test.ts` (3), `state-09-documents-rag.test.ts` (3), and `state-10-study-planner.test.ts` (3); 0 lint or typecheck errors; production build succeeded across all 60 routes.
 - Failed tests: None.
 - Unresolved issues: None.
 
 ## Known Issues
 
-- None blocking State 10.
+- None blocking State 11.
 
 ## User Feedback
 
@@ -117,6 +124,6 @@ Decisions: docs/DECISIONS.md
 
 ## Next Action
 
-- Exact next implementation state: **State 10 — Personalized Study Planner**.
-- First task to execute: Implement repositories, deterministic preparation roadmap & milestone scheduling engine (`learn_topic`, `revision`, `practice_quiz`, `flashcard_review`, `mock_exam`, `final_revision`), AI prioritization helper, adaptive task rescheduling on missed/completed tasks, `/api/v1/study-plans/*` & `/api/v1/study-tasks/*` endpoints, and the interactive Student `/planner` UI page.
-- Relevant files to inspect: `Context.md`, `docs/PROJECT_SRS.md` (Section 4.8), `src/lib/validators/ai.ts`, `src/modules/ai/ai-service.ts`.
+- Exact next implementation state: **State 11 — Analytics, Notifications and Gamification**.
+- First task to execute: Implement repositories and services for `progressRecords` and `notifications`, calculate subject-wise performance & topic mastery estimates from verified quiz attempts, flashcard reviews, and completed study tasks, implement learning streaks, milestones, explainable adaptive recommendations, `/api/v1/analytics/*` & `/api/v1/notifications/*` endpoints, and integrate the Student `/dashboard`, `/analytics`, and `/notifications` UI pages.
+- Relevant files to inspect: `Context.md`, `docs/PROJECT_SRS.md` (Sections 4.10 & 4.11), `src/app/(student)/dashboard/page.tsx`.
