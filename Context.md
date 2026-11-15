@@ -9,9 +9,9 @@ Deployment: Vercel
 
 ## Current State
 
-CURRENT_STATE: 07
+CURRENT_STATE: 08
 STATUS: COMPLETE
-LAST_COMPLETED_STATE: 07
+LAST_COMPLETED_STATE: 08
 
 ## Product Requirements
 
@@ -60,26 +60,31 @@ Decisions: docs/DECISIONS.md
   - Implemented `MongooseQuizRepository` and `InMemoryQuizRepository` (`src/modules/quizzes/quiz-repository.ts`) persisting `quizzes`, `questions`, and `quizAttempts`.
   - Implemented `quiz-service.ts` (`src/modules/quizzes/quiz-service.ts`) enforcing server-side answer-key stripping before submission (`sanitizeQuestionForDelivery`), deterministic objective question auto-scoring with negative marking (`FR-QUIZ-009`), AI rubric-grounded short-answer grading labeled `[AI-Assisted Rubric Evaluation]` (`FR-QUIZ-010`), weak-topic identification (`<60%` topic accuracy) with prerequisite & revision material recommendations (`FR-QUIZ-015`), and retry attempt creation (`FR-QUIZ-013`).
   - Built `/api/v1/quizzes`, `/api/v1/quizzes/[quizId]`, `/api/v1/attempts`, and `/api/v1/attempts/[attemptId]` Route Handlers, plus the interactive Student Quiz & Mock Examination UI (`/quizzes`).
+- **State 08 — Flashcards and Spaced Repetition**:
+  - Implemented strict Zod schemas (`src/lib/validators/flashcards.ts`) for manual deck creation, AI flashcard generation (`FR-FLASH-001`), card CRUD (`FR-FLASH-003`, `FR-FLASH-005`), review queue filtering (`due`, `upcoming`, `mastered`, `difficult`, `all` — `FR-FLASH-009`), and SM-2 rating submissions (`again`, `hard`, `good`, `easy` — `FR-FLASH-007`).
+  - Implemented `MongooseFlashcardRepository` and `InMemoryFlashcardRepository` (`src/modules/flashcards/flashcard-repository.ts`) persisting `flashcardDecks`, `flashcards`, and `reviewLogs`.
+  - Implemented `flashcard-service.ts` (`src/modules/flashcards/flashcard-service.ts`) with the deterministic SM-2 scheduler (`computeNextSM2Schedule` — `FR-FLASH-006..008`, ADR-006), category breakdowns (`categorizeFlashcards`), AI deck generation from syllabus topics or saved study notes, card CRUD with deck count synchronization, and `reviewLogs` persistence (`FR-FLASH-010`).
+  - Built `/api/v1/flashcards`, `/api/v1/flashcards/[id]`, and `/api/v1/reviews` Route Handlers, plus the interactive Student Flip-Card & Spaced-Repetition UI (`/flashcards`).
 
 ## Current Implementation
 
-- Completed State 07 (Quiz and Examination System).
-- Ready to transition to State 08 (Flashcards and Spaced Repetition) upon user instruction.
+- Completed State 08 (Flashcards and Spaced Repetition).
+- Ready to transition to State 09 (Document Management and RAG) upon user instruction.
 
 ## Technical Decisions
 
 - **ADR-001..007**: Modular monolith on Next.js App Router, `npm`, 27 normalized Mongoose collections, OpenRouter gateway, hybrid RAG, deterministic SM-2/scheduler, pluggable storage.
-- **State 07 Quiz & Exam Architecture**: Active exam questions delivered via `sanitizeQuestionForDelivery` never expose `correctOptionIds`, `expectedShortAnswerRubric`, or `explanation` until `attempt.status === 'submitted'` (unless the student explicitly configured `feedbackTiming: 'immediate'` for practice mode). Objective items are scored deterministically with configurable negative marking, whereas `short_answer` items invoke `executeStructuredAITask('quiz_evaluation')` and tag responses with `isAiEvaluated: true`.
+- **State 08 SM-2 Spaced Repetition Architecture**: `computeNextSM2Schedule` deterministically calculates `easeFactor` (clamped `>= 1.3`), `intervalDays`, `repetitions`, `nextReviewAt`, and `masteryState` (`new`, `learning`, `review`, `mastered`, `difficult`) for each rating (`again`, `hard`, `good`, `easy`) without relying on LLM calls, while recording every transition in `reviewLogs`.
 
 ## Database Status
 
-- Completed collections: All 27 collections compiled into Mongoose models (`src/models/index.ts`); active repositories implemented for `users`, `educationSystems`, `educationLevels`, `examinations`, `subjects`, `chapters`, `topics`, `promptTemplates`, `aiUsageLogs`, `appSettings`, `auditLogs`, `conversations`, `messages`, `generatedContents`, `feedbackReports`, `quizzes`, `questions`, and `quizAttempts`.
-- Pending collections: `flashcardDecks`, `flashcards`, `reviewLogs` (State 08); `uploadedMaterials`, `documentChunks` (State 09); `studyPlans`, `studyTasks` (State 10); `progressRecords`, `notifications` (State 11).
+- Completed collections: All 27 collections compiled into Mongoose models (`src/models/index.ts`); active repositories implemented for `users`, `educationSystems`, `educationLevels`, `examinations`, `subjects`, `chapters`, `topics`, `promptTemplates`, `aiUsageLogs`, `appSettings`, `auditLogs`, `conversations`, `messages`, `generatedContents`, `feedbackReports`, `quizzes`, `questions`, `quizAttempts`, `flashcardDecks`, `flashcards`, and `reviewLogs`.
+- Pending collections: `uploadedMaterials`, `documentChunks` (State 09); `studyPlans`, `studyTasks` (State 10); `progressRecords`, `notifications` (State 11).
 - Required indexes and migrations: All compound indexes registered in `SCHEMA_REGISTRY` and compiled onto Mongoose schemas.
 
 ## Integrations
 
-- MongoDB: CONFIGURED (`.env.local` `MONGODB_URI` present; active repositories for Auth, Curriculum, AI, Tutor/Materials, and Quizzes/Exams)
+- MongoDB: CONFIGURED (`.env.local` `MONGODB_URI` present; active repositories for Auth, Curriculum, AI, Tutor/Materials, Quizzes/Exams, and Flashcards/Reviews)
 - OpenRouter: CONFIGURED (`.env.local` `OPENROUTER_API_KEY` present; centralized gateway active in `src/lib/ai/openrouter-client.ts` & `src/modules/ai/ai-service.ts`)
 - Storage: NOT_CONFIGURED (`BLOB_READ_WRITE_TOKEN` empty; local disk adapter used in dev)
 - Vercel: NOT_CONFIGURED
@@ -91,13 +96,13 @@ Decisions: docs/DECISIONS.md
   - `npm run lint` (`node scripts/lint.mjs`)
   - `npm test` (`vitest run`)
   - `npm run build` (`next build`)
-- Passed tests: 32/32 unit & integration tests across `state-01-architecture.test.ts` (6), `state-02-scaffold.test.ts` (3), `state-03-auth-onboarding.test.ts` (6), `state-04-curriculum-cms.test.ts` (5), `state-05-ai-infrastructure.test.ts` (5), `state-06-tutor-materials.test.ts` (4), and `state-07-quizzes-exams.test.ts` (3); 0 lint or typecheck errors; production build succeeded across all 58 routes.
+- Passed tests: 35/35 unit & integration tests across `state-01-architecture.test.ts` (6), `state-02-scaffold.test.ts` (3), `state-03-auth-onboarding.test.ts` (6), `state-04-curriculum-cms.test.ts` (5), `state-05-ai-infrastructure.test.ts` (5), `state-06-tutor-materials.test.ts` (4), `state-07-quizzes-exams.test.ts` (3), and `state-08-flashcards-sm2.test.ts` (3); 0 lint or typecheck errors; production build succeeded across all 58 routes.
 - Failed tests: None.
 - Unresolved issues: None.
 
 ## Known Issues
 
-- None blocking State 08.
+- None blocking State 09.
 
 ## User Feedback
 
@@ -106,6 +111,6 @@ Decisions: docs/DECISIONS.md
 
 ## Next Action
 
-- Exact next implementation state: **State 08 — Flashcards and Spaced Repetition**.
-- First task to execute: Implement repositories, deterministic SM-2 spaced repetition scheduling service (`again`, `hard`, `good`, `easy`), Zod validators, and Route Handlers for `/api/v1/flashcards/*` and `/api/v1/reviews/*` (deck & card CRUD, AI flashcard generation from topics/notes, timezone-safe due queue, and `reviewLogs`), plus the interactive Student `/flashcards` flip & review UI page.
-- Relevant files to inspect: `Context.md`, `docs/PROJECT_SRS.md` (Section 4.7), `src/lib/validators/ai.ts`, `src/modules/ai/ai-service.ts`.
+- Exact next implementation state: **State 09 — Document Management and RAG**.
+- First task to execute: Implement repositories, file validation & text extraction/chunking pipeline, user-isolated keyword & semantic retrieval with `<untrusted_document_chunk>` prompt-injection sandboxing, grounded Q&A with page/chunk citations, document-to-notes/quiz/flashcards generation, `/api/v1/documents/*` endpoints, and the interactive Student `/documents` UI page.
+- Relevant files to inspect: `Context.md`, `docs/PROJECT_SRS.md` (Section 4.9), `src/lib/storage/adapter.ts`, `src/lib/jobs/processor.ts`, `src/modules/ai/ai-service.ts`.

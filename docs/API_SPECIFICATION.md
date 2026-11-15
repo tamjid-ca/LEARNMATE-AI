@@ -35,7 +35,7 @@
 }
 ```
 
-## 3. Implemented Endpoints (Through State 07)
+## 3. Implemented Endpoints (Through State 08)
 
 | Method & Route | Auth | Description |
 | :--- | :--- | :--- |
@@ -90,6 +90,14 @@
 | `POST /api/v1/attempts` | Authenticated (Owner) | Starts a new or retry examination attempt for an existing quiz (`FR-QUIZ-013`). |
 | `GET /api/v1/attempts/[attemptId]` | Authenticated (Owner) | Retrieves attempt status, responses, questions, and weak-topic diagnostics (`FR-QUIZ-011`, `FR-QUIZ-015`). |
 | `POST /api/v1/attempts/[attemptId]` | Authenticated (Owner) | Submits attempt answers, auto-scores objective items with negative marking, evaluates short answers via AI rubric, and identifies weak topics & recommended revision materials (`FR-QUIZ-009..015`). |
+| `GET /api/v1/flashcards` | Authenticated | Lists personal flashcard decks with due, upcoming, mastered, and difficult counts (`FR-FLASH-002`, `FR-FLASH-009`). |
+| `POST /api/v1/flashcards` | Authenticated | Creates a manual flashcard deck (`mode: 'manual'`) or generates an AI active-recall deck from topics/notes (`mode: 'ai'` — `FR-FLASH-001..003`). |
+| `GET /api/v1/flashcards/[id]` | Authenticated (Owner) | Retrieves a flashcard deck, its cards, and category summary (`FR-FLASH-002`). |
+| `POST /api/v1/flashcards/[id]` | Authenticated (Owner) | Appends a new flashcard to an existing deck (`FR-FLASH-003`). |
+| `PATCH /api/v1/flashcards/[id]` | Authenticated (Owner) | Edits a flashcard's front, back, or hint (`FR-FLASH-005`). |
+| `DELETE /api/v1/flashcards/[id]` | Authenticated (Owner) | Deletes a flashcard or entire deck (`?type=deck` — `FR-FLASH-005`). |
+| `GET /api/v1/reviews` | Authenticated | Returns spaced-repetition card queue (`filter=due|upcoming|mastered|difficult|all`), summary counts, and recent `reviewLogs` (`FR-FLASH-009`, `FR-FLASH-010`). |
+| `POST /api/v1/reviews` | Authenticated (Owner) | Submits an SM-2 card rating (`again`, `hard`, `good`, `easy`), updates `nextReviewAt` & `masteryState`, and records a `reviewLogs` entry (`FR-FLASH-006..010`). |
 
 ## 4. Planned Endpoint Groups (States 04–12)
 
