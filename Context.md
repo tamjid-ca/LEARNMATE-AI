@@ -9,9 +9,9 @@ Deployment: Vercel
 
 ## Current State
 
-CURRENT_STATE: 02
+CURRENT_STATE: 03
 STATUS: COMPLETE
-LAST_COMPLETED_STATE: 02
+LAST_COMPLETED_STATE: 03
 
 ## Product Requirements
 
@@ -31,38 +31,35 @@ Decisions: docs/DECISIONS.md
 - **State 01 — Architecture and Database Design**:
   - Created `.gitignore`, finalized domain types & enums (`src/types/domain.ts`), API error/response envelopes (`src/lib/api/errors.ts`, `src/lib/api/response.ts`), server-side RBAC & ownership guards (`src/lib/auth/rbac.ts`), OpenRouter task routing (`src/lib/ai/config.ts`), storage upload validator (`src/lib/storage/adapter.ts`), durable job transitions (`src/lib/jobs/processor.ts`), and 27-collection schema registry (`src/lib/database/schema-registry.ts`).
 - **State 02 — Project Scaffold and Design System**:
-  - Initialized Next.js 15 App Router, React 19, TypeScript, Tailwind CSS v4, Vitest, and static security/boundary linter (`scripts/lint.mjs`).
-  - Built core shadcn/ui primitives (`button`, `card`, `badge`, `input`, `separator`, `skeleton`, `tabs`, `tooltip`), theme & bilingual (English / বাংলা) context provider (`src/components/providers/app-providers.tsx`), and reusable loading/empty/error states (`src/components/shared/page-states.tsx`).
-  - Implemented responsive collapsible Student Workspace (all 11 SRS routes) and Administrator Console (all 13 SRS routes) via `src/config/navigation.ts` and `src/components/shared/app-shell.tsx`.
-  - Built public EdTech SaaS landing page (`src/app/(public)/page.tsx`), auth shells (`/login`, `/register`), student dashboard (`/dashboard`), admin overview (`/admin`), and `/api/v1/health` endpoint.
-  - Bound runtime Mongoose connection caching (`src/lib/database/mongoose.ts`) and 27 Mongoose schemas/models (`src/models/index.ts`).
+  - Initialized Next.js 15 App Router, React 19, TypeScript, Tailwind CSS v4, Vitest, shadcn/ui primitives, bilingual (English / বাংলা) & dark/light theme provider, responsive collapsible Student (11 routes) & Admin (13 routes) shell, public landing page, and Mongoose runtime model factory.
+- **State 03 — Authentication and Student Onboarding**:
+  - Implemented `scrypt` cryptographic password hashing (`src/lib/auth/password.ts`), stateless HMAC-SHA256 session & action tokens (`src/lib/auth/session.ts`), endpoint rate limiting (`src/lib/security/rate-limit.ts`), and strict Zod schemas (`src/lib/validators/auth.ts`).
+  - Implemented `MongooseUserRepository` and `InMemoryUserRepository` (`src/modules/auth/user-repository.ts`) with cascading personal data deletion across 16 user-owned collections (`FR-AUTH-007`), and `auth-service.ts` (`src/modules/auth/auth-service.ts`).
+  - Built `/api/v1/auth/*` (`register`, `login`, `logout`, `me`, `verify-email`, `forgot-password`, `reset-password`), `/api/v1/users/profile` (`GET`, `PATCH`, `DELETE`), and `/api/v1/onboarding` (`GET`, `POST`).
+  - Implemented Next.js Web Crypto Edge middleware (`src/middleware.ts`) and route evaluator (`src/lib/auth/route-guard.ts`) protecting student, onboarding, and admin routes.
+  - Built interactive Login (`/login`), Registration (`/register`), Password Recovery (`/forgot-password`), Multi-Step Student Onboarding (`/onboarding`), and Profile & Privacy Settings (`/settings`) UI pages.
 
 ## Current Implementation
 
-- Completed State 02 (Project Scaffold and Design System).
-- Ready to transition to State 03 (Authentication and Student Onboarding) upon user instruction.
+- Completed State 03 (Authentication and Student Onboarding).
+- Ready to transition to State 04 (Curriculum and Administrative CMS) upon user instruction.
 
 ## Technical Decisions
 
-- **ADR-001**: Modular monolithic Next.js App Router application on Node.js runtime (`src/modules`, `src/services`, `src/models`, `src/lib`).
-- **ADR-002**: Use `npm` (`v11.19.0`) as the package manager.
-- **ADR-003**: Single-source-of-truth 27-collection schema registry (`src/lib/database/schema-registry.ts`) compiled into Mongoose models (`src/models/index.ts`) with cached serverless connection pooling (`src/lib/database/mongoose.ts`).
-- **ADR-004**: Centralized server-side OpenRouter gateway (`openrouter/free` default) with per-task model routing and bounded Zod output validation.
-- **ADR-005**: Hybrid RAG retrieval (keyword/text search default, upgrading to vector search only when embeddings + Atlas Vector Search are configured).
-- **ADR-006**: Deterministic TypeScript algorithms for SM-2 spaced repetition and study roadmap scheduling.
-- **ADR-007**: Pluggable `StorageAdapter` and durable job status state machine (`src/lib/jobs/processor.ts`).
+- **ADR-001..007**: Modular monolith on Next.js App Router, `npm`, 27 normalized Mongoose collections, OpenRouter gateway, hybrid RAG, deterministic SM-2/scheduler, pluggable storage.
+- **State 03 Auth Architecture**: Node `crypto.scrypt` password hashing + HMAC-SHA256 signed `HttpOnly` session cookies (`learnmate_session`) verified in both Node Route Handlers and Edge Middleware (`crypto.subtle`). Self-registration strictly enforces `role: 'student'` and rejects extra fields via Zod `.strict()`.
 
 ## Database Status
 
-- Completed collections: All 27 collections compiled into Mongoose schemas & models (`src/models/index.ts`) with `select: false` on sensitive fields and compound indexes verified by unit tests.
-- Pending collections: Live CRUD repository wiring starting in State 03 (`users` auth, profile, and onboarding).
-- Required indexes and migrations: Index sync helper ready on all 27 Mongoose models.
+- Completed collections: All 27 collections compiled into Mongoose models (`src/models/index.ts`); `users` CRUD + cascading deletion across all 16 student-owned collections active in `src/modules/auth/user-repository.ts`.
+- Pending collections: `educationSystems`, `educationLevels`, `examinations`, `subjects`, `chapters`, `topics`, and `auditLogs` CRUD repositories in State 04.
+- Required indexes and migrations: Curriculum hierarchy compound indexes and initial Bangladesh (SSC, HSC, University Admission, BCS) syllabus seeding scheduled for State 04.
 
 ## Integrations
 
-- MongoDB: CONFIGURED_IN_CODE (connection singleton ready; uses `.env.local` `MONGODB_URI`)
-- OpenRouter: CONFIGURED_IN_CODE (task registry ready; uses `.env.local` `OPENROUTER_API_KEY`)
-- Storage: NOT_CONFIGURED (awaiting `BLOB_READ_WRITE_TOKEN`; local fallback planned for dev)
+- MongoDB: CONFIGURED (`.env.local` `MONGODB_URI` present; `MongooseUserRepository` active)
+- OpenRouter: CONFIGURED (`.env.local` `OPENROUTER_API_KEY` present; gateway wired in State 05)
+- Storage: NOT_CONFIGURED (`BLOB_READ_WRITE_TOKEN` empty; local disk adapter used in dev)
 - Vercel: NOT_CONFIGURED
 
 ## Tests
@@ -72,13 +69,13 @@ Decisions: docs/DECISIONS.md
   - `npm run lint` (`node scripts/lint.mjs`)
   - `npm test` (`vitest run`)
   - `npm run build` (`next build`)
-- Passed tests: 9/9 unit tests across `tests/state-01-architecture.test.ts` (6) and `tests/state-02-scaffold.test.ts` (3); 0 lint or typecheck errors; production build succeeded across all static & dynamic routes.
+- Passed tests: 15/15 unit & integration tests across `state-01-architecture.test.ts` (6), `state-02-scaffold.test.ts` (3), and `state-03-auth-onboarding.test.ts` (6); 0 lint or typecheck errors; production build succeeded across all routes and middleware.
 - Failed tests: None.
 - Unresolved issues: None.
 
 ## Known Issues
 
-- None blocking State 03.
+- None blocking State 04.
 
 ## User Feedback
 
@@ -87,6 +84,6 @@ Decisions: docs/DECISIONS.md
 
 ## Next Action
 
-- Exact next implementation state: **State 03 — Authentication and Student Onboarding**.
-- First task to execute: Implement password hashing, session/cookie signing & verification, `/api/v1/auth/*` (register, login, logout, me, password recovery/verification), server-side RBAC middleware, `/api/v1/users/*` profile & account deletion, `/api/v1/onboarding/*` student onboarding flow & UI, protected route guards, and auth unit/integration tests.
-- Relevant files to inspect: `Context.md`, `docs/PROJECT_SRS.md` (Sections 3, 4.1, 4.2), `src/lib/auth/rbac.ts`, `src/models/index.ts`, `src/app/(auth)/login/page.tsx`, `src/app/(auth)/register/page.tsx`.
+- Exact next implementation state: **State 04 — Curriculum and Administrative CMS**.
+- First task to execute: Implement repositories, services, Zod validators, and `/api/v1/curriculum/*`, `/api/v1/topics/*`, and `/api/v1/admin/curriculum/*` endpoints for the 6-tier hierarchy (`EducationSystem` → `EducationLevel` → `Examination` → `Subject` → `Chapter` → `Topic`), JSON/CSV import-export, database pagination, Bangladesh syllabus seed data, student `/my-learning` topic browser UI, and admin curriculum management UI.
+- Relevant files to inspect: `Context.md`, `docs/PROJECT_SRS.md` (Section 4.3, 4.12), `src/lib/database/schema-registry.ts`, `src/models/index.ts`.

@@ -53,6 +53,14 @@ for (const file of files) {
     console.error(`[LINT ERROR] ${rel}: Forbidden use of eval()`);
     violations++;
   }
+
+  const isClientFile = /^['"]use client['"]/.test(content.trim());
+  if (isClientFile && (content.includes("from '@/modules/") || content.includes("from 'node:"))) {
+    console.error(
+      `[LINT ERROR] ${rel}: Client component must not import server services (@/modules/*) or node:* builtins directly`,
+    );
+    violations++;
+  }
 }
 
 if (violations > 0) {

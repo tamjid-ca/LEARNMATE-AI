@@ -3,9 +3,9 @@ import { STUDENT_NAV_ITEMS } from '@/config/navigation';
 import { WorkspaceModuleScaffold } from '@/components/shared/page-states';
 
 const VALID_STUDENT_MODULES = new Set(
-  STUDENT_NAV_ITEMS.filter((item) => item.href !== '/dashboard').map((item) =>
-    item.href.replace(/^\//, ''),
-  ),
+  STUDENT_NAV_ITEMS.filter(
+    (item) => item.href !== '/dashboard' && item.href !== '/settings',
+  ).map((item) => item.href.replace(/^\//, '')),
 );
 
 export function generateStaticParams() {

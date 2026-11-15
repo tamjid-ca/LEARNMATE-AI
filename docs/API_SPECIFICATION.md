@@ -4,7 +4,7 @@
 
 - **Base Path**: `/api/v1`
 - **Runtime**: Node.js (`export const runtime = 'nodejs'`)
-- **Authentication**: HTTP-only signed session cookies validated on the server.
+- **Authentication**: HTTP-only signed session cookies (`learnmate_session`) or `Authorization: Bearer <token>` validated on the server via `resolveActorFromHeaders()`.
 - **Validation**: All request bodies, query parameters, and route params are validated via Zod schemas before service execution.
 
 ## 2. Standardized Response Envelopes
@@ -35,13 +35,28 @@
 }
 ```
 
-## 3. Endpoint Groups (SRS Section 8)
+## 3. Implemented Endpoints (Through State 03)
+
+| Method & Route | Auth | Description |
+| :--- | :--- | :--- |
+| `GET /api/v1/health` | Public | Service status, registered collection count (27), and AI task count (9). |
+| `POST /api/v1/auth/register` | Public (Rate-limited) | Registers a new student (`role: 'student'` strictly enforced), sets `learnmate_session` cookie, issues verification token. |
+| `POST /api/v1/auth/login` | Public (Rate-limited) | Authenticates email/password with `scrypt` timing-safe check and sets `learnmate_session` cookie. |
+| `POST /api/v1/auth/logout` | Public / Auth | Clears `learnmate_session` HTTP-only cookie. |
+| `GET /api/v1/auth/me` | Authenticated | Returns the current user's public profile (`passwordHash` omitted). |
+| `POST /api/v1/auth/verify-email` | Public | Verifies email address using a signed `verify_email` action token. |
+| `POST /api/v1/auth/forgot-password` | Public (Rate-limited) | Initiates password recovery without leaking account existence. |
+| `POST /api/v1/auth/reset-password` | Public (Rate-limited) | Resets password using a signed `reset_password` token. |
+| `GET /api/v1/users/profile` | Authenticated | Returns full student/admin profile and study preferences. |
+| `PATCH /api/v1/users/profile` | Authenticated | Updates fullName, institution, country, preferredLanguage (`en`/`bn`), timezone, dailyStudyMinutes, learningPreferences, and notificationPreferences. |
+| `DELETE /api/v1/users/profile` | Authenticated | Deletes the user account and purges personal data across all 16 user-owned collections (`FR-AUTH-007`). |
+| `GET /api/v1/onboarding` | Authenticated | Returns current user onboarding state and `ONBOARDING_CURRICULUM_CATALOG`. |
+| `POST /api/v1/onboarding` | Authenticated | Saves country, education system/level, target exam, selected subjects, language, daily study minutes, learning styles, timezone, and marks `onboardingCompleted = true`. |
+
+## 4. Planned Endpoint Groups (States 04–12)
 
 | Group | Base Route | Access | Primary Responsibilities |
 | :--- | :--- | :--- | :--- |
-| **Auth** | `/api/v1/auth/*` | Public / Auth | Registration, sign-in, sign-out, password reset, email verification, session check |
-| **Users** | `/api/v1/users/*` | Authenticated | Profile retrieval/update, language/timezone preferences, account & data deletion |
-| **Onboarding** | `/api/v1/onboarding/*` | Student | Save/update country, education system, level/exam, subjects, daily study hours, learning style |
 | **Curriculum** | `/api/v1/curriculum/*` | Authenticated | Browse education systems, levels, examinations, subjects, chapters |
 | **Topics** | `/api/v1/topics/*` | Authenticated | Topic details, prerequisites, saved personal topic list |
 | **AI Tutor** | `/api/v1/tutor/*` | Student | Conversation CRUD, contextual message send/stream, Bangla/English & depth controls |
@@ -56,5 +71,3 @@
 | **Analytics** | `/api/v1/analytics/*` | Student | Study time, quiz accuracy, topic mastery estimates, streaks, adaptive recommendations |
 | **Notifications** | `/api/v1/notifications/*` | Student | List notifications, mark read, update notification preferences |
 | **Admin** | `/api/v1/admin/*` | Admin / Content Mgr | Users & roles, curriculum CMS & import/export, AI models & prompts, usage logs, reports, audit logs |
-
-> Detailed route-by-route request/response schemas are finalized in **State 01**.
