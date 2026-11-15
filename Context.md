@@ -9,9 +9,9 @@ Deployment: Vercel
 
 ## Current State
 
-CURRENT_STATE: 05
+CURRENT_STATE: 06
 STATUS: COMPLETE
-LAST_COMPLETED_STATE: 05
+LAST_COMPLETED_STATE: 06
 
 ## Product Requirements
 
@@ -49,26 +49,32 @@ Decisions: docs/DECISIONS.md
   - Implemented `MongooseAIRepository` and `InMemoryAIRepository` (`src/modules/ai/ai-repository.ts`) persisting `promptTemplates`, `aiUsageLogs`, and `appSettings` (`ai_platform_config` & reusable response cache).
   - Implemented centralized server-side OpenRouter gateway (`src/lib/ai/openrouter-client.ts`) and AI orchestration service (`src/modules/ai/ai-service.ts`) with timeouts, secret redaction (`sanitizeProviderError`), bounded schema-repair retries (`executeStructuredAITask`), fallback model routing, per-student daily request/token quotas, reusable response caching, and SSE streaming (`streamAITask`).
   - Built `/api/v1/admin/ai/config`, `/api/v1/admin/ai/prompts`, and `/api/v1/admin/ai/usage` endpoints and live Admin AI Configuration, Prompt Template Editor, and Usage Telemetry consoles (`src/components/admin/admin-ai-console.tsx`).
+- **State 06 — AI Tutor and Learning Materials**:
+  - Implemented strict Zod schemas (`src/lib/validators/tutor-materials.ts`) and client-safe bilingual catalog (`src/config/learning-materials-catalog.ts`) covering all 12 `MaterialType` entries and 8 pedagogical tutor response styles.
+  - Implemented `MongooseTutorMaterialsRepository` and `InMemoryTutorMaterialsRepository` (`src/modules/tutor/tutor-materials-repository.ts`) persisting `conversations`, `messages`, `generatedContents`, and `feedbackReports`.
+  - Implemented `tutor-materials-service.ts` (`src/modules/tutor/tutor-materials-service.ts`) providing curriculum-contextual tutor conversations, multi-turn conversation history, SSE streaming, curriculum `sourceReferences` attachment (`FR-TUTOR-011`), message feedback & flagging (`FR-TUTOR-012`), 12-type structured learning material generation with personal library caching & regeneration (`FR-MAT-002`, `FR-MAT-006`), personal note editing/deletion (`FR-MAT-005`), strict user ownership isolation, and admin content moderation (`FR-ADMIN-005`).
+  - Built `/api/v1/tutor/conversations`, `/api/v1/tutor/conversations/[conversationId]`, `/api/v1/tutor/conversations/[conversationId]/messages`, `/api/v1/tutor/messages/[messageId]/feedback`, `/api/v1/materials`, `/api/v1/materials/[materialId]`, and `/api/v1/admin/content`.
+  - Built interactive Student AI Subject Tutor (`/tutor`) and 12-Type AI Learning Materials Generator & Personal Study Library (`/materials`) UI pages.
 
 ## Current Implementation
 
-- Completed State 05 (OpenRouter and Central AI Infrastructure).
-- Ready to transition to State 06 (AI Tutor and Learning Materials) upon user instruction.
+- Completed State 06 (AI Tutor and Learning Materials).
+- Ready to transition to State 07 (Quiz and Examination System) upon user instruction.
 
 ## Technical Decisions
 
 - **ADR-001..007**: Modular monolith on Next.js App Router, `npm`, 27 normalized Mongoose collections, OpenRouter gateway, hybrid RAG, deterministic SM-2/scheduler, pluggable storage.
-- **State 05 AI Gateway Architecture**: All LLM operations pass through `executeAITask`, `executeStructuredAITask`, or `streamAITask` in `src/modules/ai/ai-service.ts`, enforcing daily per-student request/token quotas before external calls, validating structured outputs with Zod (up to 2 repair retries), falling back across configured models on provider errors, and redacting any `sk-or-v1-*` or `Bearer` credentials before logging to `aiUsageLogs`.
+- **State 06 Tutor & Materials Architecture**: Contextual AI Tutor binds sessions to curriculum topics/chapters/subjects, injects syllabus learning objectives and key concepts into the `tutor` prompt template, attaches board/exam `sourceReferences` to assistant messages, and supports both JSON and SSE streaming (`text/event-stream`). The 12-Type Learning Materials Generator validates outputs against `structuredMaterialOutputSchema`, formats clean Markdown study notes, reuses saved personal library notes by deterministic `cacheKey` unless `regenerate: true` is passed, and records `feedbackReports` whenever a student flags a message or generated study note.
 
 ## Database Status
 
-- Completed collections: All 27 collections compiled into Mongoose models (`src/models/index.ts`); active repositories implemented for `users`, `educationSystems`, `educationLevels`, `examinations`, `subjects`, `chapters`, `topics`, `promptTemplates`, `aiUsageLogs`, `appSettings`, and `auditLogs`.
-- Pending collections: `conversations`, `messages`, `generatedContents` (State 06); `quizzes`, `questions`, `quizAttempts` (State 07); `flashcardDecks`, `flashcards`, `reviewLogs` (State 08); `uploadedMaterials`, `documentChunks` (State 09); `studyPlans`, `studyTasks` (State 10); `progressRecords`, `notifications`, `feedbackReports` (State 11).
+- Completed collections: All 27 collections compiled into Mongoose models (`src/models/index.ts`); active repositories implemented for `users`, `educationSystems`, `educationLevels`, `examinations`, `subjects`, `chapters`, `topics`, `promptTemplates`, `aiUsageLogs`, `appSettings`, `auditLogs`, `conversations`, `messages`, `generatedContents`, and `feedbackReports`.
+- Pending collections: `quizzes`, `questions`, `quizAttempts` (State 07); `flashcardDecks`, `flashcards`, `reviewLogs` (State 08); `uploadedMaterials`, `documentChunks` (State 09); `studyPlans`, `studyTasks` (State 10); `progressRecords`, `notifications` (State 11).
 - Required indexes and migrations: All compound indexes registered in `SCHEMA_REGISTRY` and compiled onto Mongoose schemas.
 
 ## Integrations
 
-- MongoDB: CONFIGURED (`.env.local` `MONGODB_URI` present; `MongooseUserRepository`, `MongooseCurriculumRepository`, & `MongooseAIRepository` active)
+- MongoDB: CONFIGURED (`.env.local` `MONGODB_URI` present; `MongooseUserRepository`, `MongooseCurriculumRepository`, `MongooseAIRepository`, & `MongooseTutorMaterialsRepository` active)
 - OpenRouter: CONFIGURED (`.env.local` `OPENROUTER_API_KEY` present; centralized gateway active in `src/lib/ai/openrouter-client.ts` & `src/modules/ai/ai-service.ts`)
 - Storage: NOT_CONFIGURED (`BLOB_READ_WRITE_TOKEN` empty; local disk adapter used in dev)
 - Vercel: NOT_CONFIGURED
@@ -80,13 +86,13 @@ Decisions: docs/DECISIONS.md
   - `npm run lint` (`node scripts/lint.mjs`)
   - `npm test` (`vitest run`)
   - `npm run build` (`next build`)
-- Passed tests: 25/25 unit & integration tests across `state-01-architecture.test.ts` (6), `state-02-scaffold.test.ts` (3), `state-03-auth-onboarding.test.ts` (6), `state-04-curriculum-cms.test.ts` (5), and `state-05-ai-infrastructure.test.ts` (5); 0 lint or typecheck errors; production build succeeded across all 51 routes.
+- Passed tests: 29/29 unit & integration tests across `state-01-architecture.test.ts` (6), `state-02-scaffold.test.ts` (3), `state-03-auth-onboarding.test.ts` (6), `state-04-curriculum-cms.test.ts` (5), `state-05-ai-infrastructure.test.ts` (5), and `state-06-tutor-materials.test.ts` (4); 0 lint or typecheck errors; production build succeeded across all 54 routes.
 - Failed tests: None.
 - Unresolved issues: None.
 
 ## Known Issues
 
-- None blocking State 06.
+- None blocking State 07.
 
 ## User Feedback
 
@@ -95,6 +101,6 @@ Decisions: docs/DECISIONS.md
 
 ## Next Action
 
-- Exact next implementation state: **State 06 — AI Tutor and Learning Materials**.
-- First task to execute: Implement repositories, services, Zod validators, and Route Handlers for `/api/v1/tutor/*` (contextual conversations, message history, SSE streaming, Bangla/English & explanation depth modes, message feedback) and `/api/v1/materials/*` (all 12 learning material types, personal library CRUD, regeneration, admin moderation), plus interactive Student `/tutor` and `/materials` UI pages.
-- Relevant files to inspect: `Context.md`, `docs/PROJECT_SRS.md` (Section 4.4, Section 4.5), `src/modules/ai/ai-service.ts`, `src/lib/database/schema-registry.ts`.
+- Exact next implementation state: **State 07 — Quiz and Examination System**.
+- First task to execute: Implement repositories, services, Zod validators, and Route Handlers for `/api/v1/quizzes/*` and `/api/v1/attempts/*` (AI quiz & mock exam generation across all 4 question types, active question delivery without answer keys, timed attempt submission, objective auto-scoring, AI rubric short-answer grading, and weak-topic identification), plus interactive Student `/quizzes` UI page.
+- Relevant files to inspect: `Context.md`, `docs/PROJECT_SRS.md` (Section 4.6), `src/lib/validators/ai.ts`, `src/modules/ai/ai-service.ts`.

@@ -35,7 +35,7 @@
 }
 ```
 
-## 3. Implemented Endpoints (Through State 05)
+## 3. Implemented Endpoints (Through State 06)
 
 | Method & Route | Auth | Description |
 | :--- | :--- | :--- |
@@ -70,6 +70,20 @@
 | `GET /api/v1/admin/ai/prompts` | Admin (`admin:prompts`) | Lists versioned prompt templates across all 9 AI task types (`FR-ADMIN-006`). |
 | `POST /api/v1/admin/ai/prompts` | Admin (`admin:prompts`) | Publishes a new versioned prompt template for an AI task and records an audit log. |
 | `GET /api/v1/admin/ai/usage` | Admin (`admin:usage_logs`) | Returns paginated `aiUsageLogs` and aggregate token, latency, cache, and error telemetry (`FR-ADMIN-008`, `FR-AI-010`). |
+| `GET /api/v1/tutor/conversations` | Authenticated | Lists the authenticated student's AI Tutor conversations (`FR-TUTOR-002`). |
+| `POST /api/v1/tutor/conversations` | Authenticated | Starts a new contextual AI Tutor conversation bound to a curriculum topic/chapter/subject, optionally executing an initial message turn (`FR-TUTOR-001`, `FR-TUTOR-003`). |
+| `GET /api/v1/tutor/conversations/[conversationId]` | Authenticated (Owner) | Returns conversation metadata and chronological message history (`FR-TUTOR-002`). |
+| `PATCH /api/v1/tutor/conversations/[conversationId]` | Authenticated (Owner) | Renames, archives, or updates language/depth settings on a tutor conversation (`FR-TUTOR-008`). |
+| `DELETE /api/v1/tutor/conversations/[conversationId]` | Authenticated (Owner) | Deletes a tutor conversation and cascades deletion across its messages (`FR-TUTOR-008`). |
+| `POST /api/v1/tutor/conversations/[conversationId]/messages` | Authenticated (Owner) | Sends a student question with pedagogical response style (`step_by_step`, `examples`, etc.), attaches curriculum `sourceReferences`, and returns JSON or `text/event-stream` SSE (`FR-TUTOR-004..011`). |
+| `POST /api/v1/tutor/messages/[messageId]/feedback` | Authenticated (Owner) | Rates a tutor message (`helpful`, `unhelpful`, `flagged`) and records a `feedbackReports` entry when flagged (`FR-TUTOR-012`). |
+| `GET /api/v1/materials` | Authenticated | Lists paginated study materials in the student's personal library with `subjectId`, `topicId`, `materialType`, `language`, and `savedOnly` filters (`FR-MAT-005`). |
+| `POST /api/v1/materials` | Authenticated | Generates structured study notes across all 12 `MaterialType` entries, reusing cached personal notes unless `regenerate: true` is specified (`FR-MAT-002..006`). |
+| `GET /api/v1/materials/[materialId]` | Authenticated (Owner) | Retrieves a single generated study material record (`FR-MAT-005`). |
+| `PATCH /api/v1/materials/[materialId]` | Authenticated (Owner) | Updates personal study note title, Markdown content, library save status, or flags for review (`FR-MAT-005`). |
+| `DELETE /api/v1/materials/[materialId]` | Authenticated (Owner) | Deletes a generated study material from the student's personal library (`FR-MAT-005`). |
+| `GET /api/v1/admin/content` | Admin / Content Mgr (`content:review`) | Lists flagged and recently generated AI study materials for moderation (`FR-ADMIN-005`, `FR-ADMIN-012`). |
+| `PATCH /api/v1/admin/content` | Admin / Content Mgr (`content:review`) | Clears flags or publishes reviewed AI study materials (`FR-ADMIN-005`). |
 
 ## 4. Planned Endpoint Groups (States 04–12)
 
