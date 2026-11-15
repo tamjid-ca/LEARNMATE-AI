@@ -35,7 +35,7 @@
 }
 ```
 
-## 3. Implemented Endpoints (Through State 06)
+## 3. Implemented Endpoints (Through State 07)
 
 | Method & Route | Auth | Description |
 | :--- | :--- | :--- |
@@ -84,6 +84,12 @@
 | `DELETE /api/v1/materials/[materialId]` | Authenticated (Owner) | Deletes a generated study material from the student's personal library (`FR-MAT-005`). |
 | `GET /api/v1/admin/content` | Admin / Content Mgr (`content:review`) | Lists flagged and recently generated AI study materials for moderation (`FR-ADMIN-005`, `FR-ADMIN-012`). |
 | `PATCH /api/v1/admin/content` | Admin / Content Mgr (`content:review`) | Clears flags or publishes reviewed AI study materials (`FR-ADMIN-005`). |
+| `GET /api/v1/quizzes` | Authenticated | Lists paginated practice quizzes and mock examinations with attempt counts and best accuracy (`FR-QUIZ-011`). |
+| `POST /api/v1/quizzes` | Authenticated | Generates a schema-validated quiz or timed mock exam across 4 question types (`single_mcq`, `multiple_mcq`, `true_false`, `short_answer`) and starts an initial attempt (`FR-QUIZ-001..005`, `FR-QUIZ-014`). |
+| `GET /api/v1/quizzes/[quizId]` | Authenticated (Owner) | Returns quiz metadata, active/solution questions (`includeSolutions=true` after submission), and attempt history (`FR-QUIZ-006`, `FR-QUIZ-012`). |
+| `POST /api/v1/attempts` | Authenticated (Owner) | Starts a new or retry examination attempt for an existing quiz (`FR-QUIZ-013`). |
+| `GET /api/v1/attempts/[attemptId]` | Authenticated (Owner) | Retrieves attempt status, responses, questions, and weak-topic diagnostics (`FR-QUIZ-011`, `FR-QUIZ-015`). |
+| `POST /api/v1/attempts/[attemptId]` | Authenticated (Owner) | Submits attempt answers, auto-scores objective items with negative marking, evaluates short answers via AI rubric, and identifies weak topics & recommended revision materials (`FR-QUIZ-009..015`). |
 
 ## 4. Planned Endpoint Groups (States 04–12)
 

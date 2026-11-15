@@ -9,9 +9,9 @@ Deployment: Vercel
 
 ## Current State
 
-CURRENT_STATE: 06
+CURRENT_STATE: 07
 STATUS: COMPLETE
-LAST_COMPLETED_STATE: 06
+LAST_COMPLETED_STATE: 07
 
 ## Product Requirements
 
@@ -55,26 +55,31 @@ Decisions: docs/DECISIONS.md
   - Implemented `tutor-materials-service.ts` (`src/modules/tutor/tutor-materials-service.ts`) providing curriculum-contextual tutor conversations, multi-turn conversation history, SSE streaming, curriculum `sourceReferences` attachment (`FR-TUTOR-011`), message feedback & flagging (`FR-TUTOR-012`), 12-type structured learning material generation with personal library caching & regeneration (`FR-MAT-002`, `FR-MAT-006`), personal note editing/deletion (`FR-MAT-005`), strict user ownership isolation, and admin content moderation (`FR-ADMIN-005`).
   - Built `/api/v1/tutor/conversations`, `/api/v1/tutor/conversations/[conversationId]`, `/api/v1/tutor/conversations/[conversationId]/messages`, `/api/v1/tutor/messages/[messageId]/feedback`, `/api/v1/materials`, `/api/v1/materials/[materialId]`, and `/api/v1/admin/content`.
   - Built interactive Student AI Subject Tutor (`/tutor`) and 12-Type AI Learning Materials Generator & Personal Study Library (`/materials`) UI pages.
+- **State 07 — Quiz and Examination System**:
+  - Implemented strict Zod schemas (`src/lib/validators/quiz.ts`) for quiz/mock-exam generation across all 4 question types (`single_mcq`, `multiple_mcq`, `true_false`, `short_answer`), timed exams, negative marking, feedback timing (`after_submission`, `immediate`), and attempt submission.
+  - Implemented `MongooseQuizRepository` and `InMemoryQuizRepository` (`src/modules/quizzes/quiz-repository.ts`) persisting `quizzes`, `questions`, and `quizAttempts`.
+  - Implemented `quiz-service.ts` (`src/modules/quizzes/quiz-service.ts`) enforcing server-side answer-key stripping before submission (`sanitizeQuestionForDelivery`), deterministic objective question auto-scoring with negative marking (`FR-QUIZ-009`), AI rubric-grounded short-answer grading labeled `[AI-Assisted Rubric Evaluation]` (`FR-QUIZ-010`), weak-topic identification (`<60%` topic accuracy) with prerequisite & revision material recommendations (`FR-QUIZ-015`), and retry attempt creation (`FR-QUIZ-013`).
+  - Built `/api/v1/quizzes`, `/api/v1/quizzes/[quizId]`, `/api/v1/attempts`, and `/api/v1/attempts/[attemptId]` Route Handlers, plus the interactive Student Quiz & Mock Examination UI (`/quizzes`).
 
 ## Current Implementation
 
-- Completed State 06 (AI Tutor and Learning Materials).
-- Ready to transition to State 07 (Quiz and Examination System) upon user instruction.
+- Completed State 07 (Quiz and Examination System).
+- Ready to transition to State 08 (Flashcards and Spaced Repetition) upon user instruction.
 
 ## Technical Decisions
 
 - **ADR-001..007**: Modular monolith on Next.js App Router, `npm`, 27 normalized Mongoose collections, OpenRouter gateway, hybrid RAG, deterministic SM-2/scheduler, pluggable storage.
-- **State 06 Tutor & Materials Architecture**: Contextual AI Tutor binds sessions to curriculum topics/chapters/subjects, injects syllabus learning objectives and key concepts into the `tutor` prompt template, attaches board/exam `sourceReferences` to assistant messages, and supports both JSON and SSE streaming (`text/event-stream`). The 12-Type Learning Materials Generator validates outputs against `structuredMaterialOutputSchema`, formats clean Markdown study notes, reuses saved personal library notes by deterministic `cacheKey` unless `regenerate: true` is passed, and records `feedbackReports` whenever a student flags a message or generated study note.
+- **State 07 Quiz & Exam Architecture**: Active exam questions delivered via `sanitizeQuestionForDelivery` never expose `correctOptionIds`, `expectedShortAnswerRubric`, or `explanation` until `attempt.status === 'submitted'` (unless the student explicitly configured `feedbackTiming: 'immediate'` for practice mode). Objective items are scored deterministically with configurable negative marking, whereas `short_answer` items invoke `executeStructuredAITask('quiz_evaluation')` and tag responses with `isAiEvaluated: true`.
 
 ## Database Status
 
-- Completed collections: All 27 collections compiled into Mongoose models (`src/models/index.ts`); active repositories implemented for `users`, `educationSystems`, `educationLevels`, `examinations`, `subjects`, `chapters`, `topics`, `promptTemplates`, `aiUsageLogs`, `appSettings`, `auditLogs`, `conversations`, `messages`, `generatedContents`, and `feedbackReports`.
-- Pending collections: `quizzes`, `questions`, `quizAttempts` (State 07); `flashcardDecks`, `flashcards`, `reviewLogs` (State 08); `uploadedMaterials`, `documentChunks` (State 09); `studyPlans`, `studyTasks` (State 10); `progressRecords`, `notifications` (State 11).
+- Completed collections: All 27 collections compiled into Mongoose models (`src/models/index.ts`); active repositories implemented for `users`, `educationSystems`, `educationLevels`, `examinations`, `subjects`, `chapters`, `topics`, `promptTemplates`, `aiUsageLogs`, `appSettings`, `auditLogs`, `conversations`, `messages`, `generatedContents`, `feedbackReports`, `quizzes`, `questions`, and `quizAttempts`.
+- Pending collections: `flashcardDecks`, `flashcards`, `reviewLogs` (State 08); `uploadedMaterials`, `documentChunks` (State 09); `studyPlans`, `studyTasks` (State 10); `progressRecords`, `notifications` (State 11).
 - Required indexes and migrations: All compound indexes registered in `SCHEMA_REGISTRY` and compiled onto Mongoose schemas.
 
 ## Integrations
 
-- MongoDB: CONFIGURED (`.env.local` `MONGODB_URI` present; `MongooseUserRepository`, `MongooseCurriculumRepository`, `MongooseAIRepository`, & `MongooseTutorMaterialsRepository` active)
+- MongoDB: CONFIGURED (`.env.local` `MONGODB_URI` present; active repositories for Auth, Curriculum, AI, Tutor/Materials, and Quizzes/Exams)
 - OpenRouter: CONFIGURED (`.env.local` `OPENROUTER_API_KEY` present; centralized gateway active in `src/lib/ai/openrouter-client.ts` & `src/modules/ai/ai-service.ts`)
 - Storage: NOT_CONFIGURED (`BLOB_READ_WRITE_TOKEN` empty; local disk adapter used in dev)
 - Vercel: NOT_CONFIGURED
@@ -86,13 +91,13 @@ Decisions: docs/DECISIONS.md
   - `npm run lint` (`node scripts/lint.mjs`)
   - `npm test` (`vitest run`)
   - `npm run build` (`next build`)
-- Passed tests: 29/29 unit & integration tests across `state-01-architecture.test.ts` (6), `state-02-scaffold.test.ts` (3), `state-03-auth-onboarding.test.ts` (6), `state-04-curriculum-cms.test.ts` (5), `state-05-ai-infrastructure.test.ts` (5), and `state-06-tutor-materials.test.ts` (4); 0 lint or typecheck errors; production build succeeded across all 54 routes.
+- Passed tests: 32/32 unit & integration tests across `state-01-architecture.test.ts` (6), `state-02-scaffold.test.ts` (3), `state-03-auth-onboarding.test.ts` (6), `state-04-curriculum-cms.test.ts` (5), `state-05-ai-infrastructure.test.ts` (5), `state-06-tutor-materials.test.ts` (4), and `state-07-quizzes-exams.test.ts` (3); 0 lint or typecheck errors; production build succeeded across all 58 routes.
 - Failed tests: None.
 - Unresolved issues: None.
 
 ## Known Issues
 
-- None blocking State 07.
+- None blocking State 08.
 
 ## User Feedback
 
@@ -101,6 +106,6 @@ Decisions: docs/DECISIONS.md
 
 ## Next Action
 
-- Exact next implementation state: **State 07 — Quiz and Examination System**.
-- First task to execute: Implement repositories, services, Zod validators, and Route Handlers for `/api/v1/quizzes/*` and `/api/v1/attempts/*` (AI quiz & mock exam generation across all 4 question types, active question delivery without answer keys, timed attempt submission, objective auto-scoring, AI rubric short-answer grading, and weak-topic identification), plus interactive Student `/quizzes` UI page.
-- Relevant files to inspect: `Context.md`, `docs/PROJECT_SRS.md` (Section 4.6), `src/lib/validators/ai.ts`, `src/modules/ai/ai-service.ts`.
+- Exact next implementation state: **State 08 — Flashcards and Spaced Repetition**.
+- First task to execute: Implement repositories, deterministic SM-2 spaced repetition scheduling service (`again`, `hard`, `good`, `easy`), Zod validators, and Route Handlers for `/api/v1/flashcards/*` and `/api/v1/reviews/*` (deck & card CRUD, AI flashcard generation from topics/notes, timezone-safe due queue, and `reviewLogs`), plus the interactive Student `/flashcards` flip & review UI page.
+- Relevant files to inspect: `Context.md`, `docs/PROJECT_SRS.md` (Section 4.7), `src/lib/validators/ai.ts`, `src/modules/ai/ai-service.ts`.
