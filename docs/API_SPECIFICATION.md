@@ -35,7 +35,7 @@
 }
 ```
 
-## 3. Implemented Endpoints (Through State 08)
+## 3. Implemented Endpoints (Through State 09)
 
 | Method & Route | Auth | Description |
 | :--- | :--- | :--- |
@@ -98,6 +98,11 @@
 | `DELETE /api/v1/flashcards/[id]` | Authenticated (Owner) | Deletes a flashcard or entire deck (`?type=deck` — `FR-FLASH-005`). |
 | `GET /api/v1/reviews` | Authenticated | Returns spaced-repetition card queue (`filter=due|upcoming|mastered|difficult|all`), summary counts, and recent `reviewLogs` (`FR-FLASH-009`, `FR-FLASH-010`). |
 | `POST /api/v1/reviews` | Authenticated (Owner) | Submits an SM-2 card rating (`again`, `hard`, `good`, `easy`), updates `nextReviewAt` & `masteryState`, and records a `reviewLogs` entry (`FR-FLASH-006..010`). |
+| `GET /api/v1/documents` | Authenticated | Lists the authenticated student's uploaded documents and reports active `retrievalMode` (`keyword` vs `vector_hybrid` — `FR-DOC-004`, `FR-DOC-011`). |
+| `POST /api/v1/documents` | Authenticated | Validates, extracts readable text, and indexes page-annotated chunks for an uploaded PDF, TXT, or DOCX (`FR-DOC-002..006`). |
+| `GET /api/v1/documents/[documentId]` | Authenticated (Owner) | Returns document metadata, processing/extraction/chunking status, and indexed chunks (`FR-DOC-004`, `FR-DOC-011`). |
+| `POST /api/v1/documents/[documentId]` | Authenticated (Owner) | Executes `<untrusted_document_chunk>` sandboxed RAG Q&A with page citations (`action: 'qa'`) or generates derivative study notes, quizzes, or flashcards (`action: 'generate'` — `FR-DOC-007..009`, `FR-AI-008`). |
+| `DELETE /api/v1/documents/[documentId]` | Authenticated (Owner) | Deletes an uploaded document and purges its indexed `documentChunks` (`FR-DOC-010`). |
 
 ## 4. Planned Endpoint Groups (States 04–12)
 

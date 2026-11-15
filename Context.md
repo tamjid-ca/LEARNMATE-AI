@@ -9,9 +9,9 @@ Deployment: Vercel
 
 ## Current State
 
-CURRENT_STATE: 08
+CURRENT_STATE: 09
 STATUS: COMPLETE
-LAST_COMPLETED_STATE: 08
+LAST_COMPLETED_STATE: 09
 
 ## Product Requirements
 
@@ -65,28 +65,34 @@ Decisions: docs/DECISIONS.md
   - Implemented `MongooseFlashcardRepository` and `InMemoryFlashcardRepository` (`src/modules/flashcards/flashcard-repository.ts`) persisting `flashcardDecks`, `flashcards`, and `reviewLogs`.
   - Implemented `flashcard-service.ts` (`src/modules/flashcards/flashcard-service.ts`) with the deterministic SM-2 scheduler (`computeNextSM2Schedule` — `FR-FLASH-006..008`, ADR-006), category breakdowns (`categorizeFlashcards`), AI deck generation from syllabus topics or saved study notes, card CRUD with deck count synchronization, and `reviewLogs` persistence (`FR-FLASH-010`).
   - Built `/api/v1/flashcards`, `/api/v1/flashcards/[id]`, and `/api/v1/reviews` Route Handlers, plus the interactive Student Flip-Card & Spaced-Repetition UI (`/flashcards`).
+- **State 09 — Document Management and RAG**:
+  - Implemented strict Zod schemas (`src/lib/validators/documents.ts`) for PDF/TXT/DOCX upload payloads (`FR-DOC-002..003`), grounded Q&A (`FR-DOC-007`), and document-to-summary/notes/quiz/flashcards generation (`FR-DOC-008`).
+  - Implemented the RAG extraction, chunking, retrieval, and prompt-injection sandboxing engine (`src/modules/documents/rag-engine.ts`) with `<untrusted_document_chunk>` wrapping (`sanitizeUntrustedChunkText`, `formatSandboxedDocumentContext` — `FR-AI-008`), page & section citations (`FR-DOC-009`), and honest retrieval mode reporting (`getActiveRetrievalMode` — `FR-DOC-011`).
+  - Implemented `MongooseDocumentRepository` and `InMemoryDocumentRepository` (`src/modules/documents/document-repository.ts`) persisting `uploadedMaterials` and `documentChunks`.
+  - Implemented `document-service.ts` (`src/modules/documents/document-service.ts`) enforcing durable status transitions (`uploaded -> extracting -> chunking -> indexing -> ready`), strict user ownership isolation (`FR-DOC-011`), grounded Q&A, derivative generation (`summary`, `notes`, `quiz`, `flashcards`), and document deletion with chunk index cleanup (`FR-DOC-010`).
+  - Built `/api/v1/documents` and `/api/v1/documents/[documentId]` Route Handlers, plus the interactive Student Document & Grounded RAG Workspace UI (`/documents`).
 
 ## Current Implementation
 
-- Completed State 08 (Flashcards and Spaced Repetition).
-- Ready to transition to State 09 (Document Management and RAG) upon user instruction.
+- Completed State 09 (Document Management and RAG).
+- Ready to transition to State 10 (Personalized Study Planner) upon user instruction.
 
 ## Technical Decisions
 
 - **ADR-001..007**: Modular monolith on Next.js App Router, `npm`, 27 normalized Mongoose collections, OpenRouter gateway, hybrid RAG, deterministic SM-2/scheduler, pluggable storage.
-- **State 08 SM-2 Spaced Repetition Architecture**: `computeNextSM2Schedule` deterministically calculates `easeFactor` (clamped `>= 1.3`), `intervalDays`, `repetitions`, `nextReviewAt`, and `masteryState` (`new`, `learning`, `review`, `mastered`, `difficult`) for each rating (`again`, `hard`, `good`, `easy`) without relying on LLM calls, while recording every transition in `reviewLogs`.
+- **State 09 Grounded RAG & Prompt-Injection Defense Architecture**: Every retrieved document chunk is sanitized (`sanitizeUntrustedChunkText`) and wrapped inside `<untrusted_document_chunk index="N" page="P" section="S">` before interpolation into the `document_qa` prompt template, preventing untrusted PDF/DOCX/TXT passages from overriding system instructions. `getActiveRetrievalMode()` reports `'keyword'` unless both `OPENROUTER_EMBEDDING_MODEL` and `ATLAS_VECTOR_INDEX_NAME` are configured (`FR-DOC-011`).
 
 ## Database Status
 
-- Completed collections: All 27 collections compiled into Mongoose models (`src/models/index.ts`); active repositories implemented for `users`, `educationSystems`, `educationLevels`, `examinations`, `subjects`, `chapters`, `topics`, `promptTemplates`, `aiUsageLogs`, `appSettings`, `auditLogs`, `conversations`, `messages`, `generatedContents`, `feedbackReports`, `quizzes`, `questions`, `quizAttempts`, `flashcardDecks`, `flashcards`, and `reviewLogs`.
-- Pending collections: `uploadedMaterials`, `documentChunks` (State 09); `studyPlans`, `studyTasks` (State 10); `progressRecords`, `notifications` (State 11).
+- Completed collections: All 27 collections compiled into Mongoose models (`src/models/index.ts`); active repositories implemented for `users`, `educationSystems`, `educationLevels`, `examinations`, `subjects`, `chapters`, `topics`, `promptTemplates`, `aiUsageLogs`, `appSettings`, `auditLogs`, `conversations`, `messages`, `generatedContents`, `feedbackReports`, `quizzes`, `questions`, `quizAttempts`, `flashcardDecks`, `flashcards`, `reviewLogs`, `uploadedMaterials`, and `documentChunks`.
+- Pending collections: `studyPlans`, `studyTasks` (State 10); `progressRecords`, `notifications` (State 11).
 - Required indexes and migrations: All compound indexes registered in `SCHEMA_REGISTRY` and compiled onto Mongoose schemas.
 
 ## Integrations
 
-- MongoDB: CONFIGURED (`.env.local` `MONGODB_URI` present; active repositories for Auth, Curriculum, AI, Tutor/Materials, Quizzes/Exams, and Flashcards/Reviews)
+- MongoDB: CONFIGURED (`.env.local` `MONGODB_URI` present; active repositories for Auth, Curriculum, AI, Tutor/Materials, Quizzes/Exams, Flashcards/Reviews, and Documents/RAG)
 - OpenRouter: CONFIGURED (`.env.local` `OPENROUTER_API_KEY` present; centralized gateway active in `src/lib/ai/openrouter-client.ts` & `src/modules/ai/ai-service.ts`)
-- Storage: NOT_CONFIGURED (`BLOB_READ_WRITE_TOKEN` empty; local disk adapter used in dev)
+- Storage: NOT_CONFIGURED (`BLOB_READ_WRITE_TOKEN` empty; local disk metadata adapter used in dev)
 - Vercel: NOT_CONFIGURED
 
 ## Tests
@@ -96,13 +102,13 @@ Decisions: docs/DECISIONS.md
   - `npm run lint` (`node scripts/lint.mjs`)
   - `npm test` (`vitest run`)
   - `npm run build` (`next build`)
-- Passed tests: 35/35 unit & integration tests across `state-01-architecture.test.ts` (6), `state-02-scaffold.test.ts` (3), `state-03-auth-onboarding.test.ts` (6), `state-04-curriculum-cms.test.ts` (5), `state-05-ai-infrastructure.test.ts` (5), `state-06-tutor-materials.test.ts` (4), `state-07-quizzes-exams.test.ts` (3), and `state-08-flashcards-sm2.test.ts` (3); 0 lint or typecheck errors; production build succeeded across all 58 routes.
+- Passed tests: 38/38 unit & integration tests across `state-01-architecture.test.ts` (6), `state-02-scaffold.test.ts` (3), `state-03-auth-onboarding.test.ts` (6), `state-04-curriculum-cms.test.ts` (5), `state-05-ai-infrastructure.test.ts` (5), `state-06-tutor-materials.test.ts` (4), `state-07-quizzes-exams.test.ts` (3), `state-08-flashcards-sm2.test.ts` (3), and `state-09-documents-rag.test.ts` (3); 0 lint or typecheck errors; production build succeeded across all 60 routes.
 - Failed tests: None.
 - Unresolved issues: None.
 
 ## Known Issues
 
-- None blocking State 09.
+- None blocking State 10.
 
 ## User Feedback
 
@@ -111,6 +117,6 @@ Decisions: docs/DECISIONS.md
 
 ## Next Action
 
-- Exact next implementation state: **State 09 — Document Management and RAG**.
-- First task to execute: Implement repositories, file validation & text extraction/chunking pipeline, user-isolated keyword & semantic retrieval with `<untrusted_document_chunk>` prompt-injection sandboxing, grounded Q&A with page/chunk citations, document-to-notes/quiz/flashcards generation, `/api/v1/documents/*` endpoints, and the interactive Student `/documents` UI page.
-- Relevant files to inspect: `Context.md`, `docs/PROJECT_SRS.md` (Section 4.9), `src/lib/storage/adapter.ts`, `src/lib/jobs/processor.ts`, `src/modules/ai/ai-service.ts`.
+- Exact next implementation state: **State 10 — Personalized Study Planner**.
+- First task to execute: Implement repositories, deterministic preparation roadmap & milestone scheduling engine (`learn_topic`, `revision`, `practice_quiz`, `flashcard_review`, `mock_exam`, `final_revision`), AI prioritization helper, adaptive task rescheduling on missed/completed tasks, `/api/v1/study-plans/*` & `/api/v1/study-tasks/*` endpoints, and the interactive Student `/planner` UI page.
+- Relevant files to inspect: `Context.md`, `docs/PROJECT_SRS.md` (Section 4.8), `src/lib/validators/ai.ts`, `src/modules/ai/ai-service.ts`.

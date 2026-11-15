@@ -11,7 +11,8 @@ const VALID_STUDENT_MODULES = new Set(
       item.href !== '/tutor' &&
       item.href !== '/materials' &&
       item.href !== '/quizzes' &&
-      item.href !== '/flashcards',
+      item.href !== '/flashcards' &&
+      item.href !== '/documents',
   ).map((item) => item.href.replace(/^\//, '')),
 );
 
