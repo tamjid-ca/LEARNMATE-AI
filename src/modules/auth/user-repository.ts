@@ -45,6 +45,7 @@ export interface UserRecord {
   timezone: string;
   dailyStudyMinutes: number;
   onboardingCompleted: boolean;
+  savedTopicIds: string[];
   notificationPreferences: NotificationPreferences;
   onboardingMeta?: OnboardingMetadata;
   createdAt: Date;
@@ -68,11 +69,20 @@ export interface CreateUserRepoInput {
   timezone: string;
 }
 
+export interface ListUsersRepoFilter {
+  role?: UserRole;
+  status?: AccountStatus;
+  search?: string;
+  page: number;
+  limit: number;
+}
+
 export interface UserRepository {
   findByEmail(email: string): Promise<UserRecord | null>;
   findById(id: string): Promise<UserRecord | null>;
   create(input: CreateUserRepoInput): Promise<UserRecord>;
   updateById(id: string, patch: Partial<Omit<UserRecord, 'id' | 'createdAt'>>): Promise<UserRecord | null>;
+  listUsers(filter: ListUsersRepoFilter): Promise<{ items: UserRecord[]; total: number }>;
   deleteAccountAndPersonalData(userId: string): Promise<{ deletedUser: boolean; purgedCollections: number }>;
 }
 
@@ -105,6 +115,7 @@ const DEFAULT_NOTIFICATION_PREFS: NotificationPreferences = {
 function mapMongoDocToUserRecord(doc: Record<string, unknown>): UserRecord {
   const rawNotif = (doc.notificationPreferences ?? {}) as Partial<NotificationPreferences> & {
     onboardingMeta?: OnboardingMetadata;
+    savedTopicIds?: string[];
   };
   return {
     id: String(doc._id),
@@ -124,6 +135,11 @@ function mapMongoDocToUserRecord(doc: Record<string, unknown>): UserRecord {
     timezone: String(doc.timezone ?? 'Asia/Dhaka'),
     dailyStudyMinutes: typeof doc.dailyStudyMinutes === 'number' ? doc.dailyStudyMinutes : 120,
     onboardingCompleted: Boolean(doc.onboardingCompleted),
+    savedTopicIds: Array.isArray(doc.savedTopicIds)
+      ? doc.savedTopicIds.map((item) => String(item))
+      : Array.isArray(rawNotif.savedTopicIds)
+        ? rawNotif.savedTopicIds.map((item: unknown) => String(item))
+        : [],
     notificationPreferences: {
       studyReminders: rawNotif.studyReminders ?? DEFAULT_NOTIFICATION_PREFS.studyReminders,
       dueFlashcards: rawNotif.dueFlashcards ?? DEFAULT_NOTIFICATION_PREFS.dueFlashcards,
@@ -188,13 +204,20 @@ export class MongooseUserRepository implements UserRepository {
     const UserModel = getMongooseModel('users');
     const updatePayload: Record<string, unknown> = { ...patch };
 
-    if (patch.notificationPreferences || patch.onboardingMeta) {
+    if (patch.notificationPreferences || patch.onboardingMeta || patch.savedTopicIds) {
       const existing = await this.findById(id);
+      const nextSavedIds = patch.savedTopicIds ?? existing?.savedTopicIds ?? [];
       updatePayload.notificationPreferences = {
         ...(existing?.notificationPreferences ?? DEFAULT_NOTIFICATION_PREFS),
         ...(patch.notificationPreferences ?? {}),
         onboardingMeta: patch.onboardingMeta ?? existing?.onboardingMeta,
+        savedTopicIds: nextSavedIds,
       };
+      if (patch.savedTopicIds) {
+        updatePayload.savedTopicIds = patch.savedTopicIds
+          .filter((tid) => mongoose.Types.ObjectId.isValid(tid))
+          .map((tid) => new mongoose.Types.ObjectId(tid));
+      }
       delete updatePayload.onboardingMeta;
     }
 
@@ -206,6 +229,30 @@ export class MongooseUserRepository implements UserRepository {
       .select('+passwordHash')
       .lean();
     return updated ? mapMongoDocToUserRecord(updated) : null;
+  }
+
+  async listUsers(filter: ListUsersRepoFilter): Promise<{ items: UserRecord[]; total: number }> {
+    await connectToDatabase();
+    const UserModel = getMongooseModel('users');
+    const mongoFilter: Record<string, unknown> = {};
+    if (filter.role) mongoFilter.role = filter.role;
+    if (filter.status) mongoFilter.status = filter.status;
+    if (filter.search?.trim()) {
+      const escaped = filter.search.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      mongoFilter.$or = [
+        { fullName: { $regex: escaped, $options: 'i' } },
+        { email: { $regex: escaped, $options: 'i' } },
+      ];
+    }
+    const skip = Math.max(0, (filter.page - 1) * filter.limit);
+    const [docs, total] = await Promise.all([
+      UserModel.find(mongoFilter).sort({ createdAt: -1 }).skip(skip).limit(filter.limit).lean(),
+      UserModel.countDocuments(mongoFilter),
+    ]);
+    return {
+      items: docs.map((d) => mapMongoDocToUserRecord(d)),
+      total,
+    };
   }
 
   async deleteAccountAndPersonalData(
@@ -269,6 +316,7 @@ export class InMemoryUserRepository implements UserRepository {
       timezone: input.timezone,
       dailyStudyMinutes: 120,
       onboardingCompleted: false,
+      savedTopicIds: [],
       notificationPreferences: { ...DEFAULT_NOTIFICATION_PREFS },
       createdAt: now,
       updatedAt: now,
@@ -286,6 +334,7 @@ export class InMemoryUserRepository implements UserRepository {
     const updated: UserRecord = {
       ...existing,
       ...patch,
+      savedTopicIds: patch.savedTopicIds ? [...patch.savedTopicIds] : [...existing.savedTopicIds],
       notificationPreferences: {
         ...existing.notificationPreferences,
         ...(patch.notificationPreferences ?? {}),
@@ -295,6 +344,27 @@ export class InMemoryUserRepository implements UserRepository {
     };
     this.store.set(id, updated);
     return { ...updated };
+  }
+
+  async listUsers(filter: ListUsersRepoFilter): Promise<{ items: UserRecord[]; total: number }> {
+    let all = Array.from(this.store.values());
+    if (filter.role) {
+      all = all.filter((u) => u.role === filter.role);
+    }
+    if (filter.status) {
+      all = all.filter((u) => u.status === filter.status);
+    }
+    if (filter.search?.trim()) {
+      const q = filter.search.trim().toLowerCase();
+      all = all.filter(
+        (u) => u.fullName.toLowerCase().includes(q) || u.email.toLowerCase().includes(q),
+      );
+    }
+    all.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    const total = all.length;
+    const skip = Math.max(0, (filter.page - 1) * filter.limit);
+    const items = all.slice(skip, skip + filter.limit).map((u) => ({ ...u }));
+    return { items, total };
   }
 
   async deleteAccountAndPersonalData(

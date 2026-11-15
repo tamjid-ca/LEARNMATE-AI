@@ -9,9 +9,9 @@ Deployment: Vercel
 
 ## Current State
 
-CURRENT_STATE: 03
+CURRENT_STATE: 04
 STATUS: COMPLETE
-LAST_COMPLETED_STATE: 03
+LAST_COMPLETED_STATE: 04
 
 ## Product Requirements
 
@@ -38,26 +38,32 @@ Decisions: docs/DECISIONS.md
   - Built `/api/v1/auth/*` (`register`, `login`, `logout`, `me`, `verify-email`, `forgot-password`, `reset-password`), `/api/v1/users/profile` (`GET`, `PATCH`, `DELETE`), and `/api/v1/onboarding` (`GET`, `POST`).
   - Implemented Next.js Web Crypto Edge middleware (`src/middleware.ts`) and route evaluator (`src/lib/auth/route-guard.ts`) protecting student, onboarding, and admin routes.
   - Built interactive Login (`/login`), Registration (`/register`), Password Recovery (`/forgot-password`), Multi-Step Student Onboarding (`/onboarding`), and Profile & Privacy Settings (`/settings`) UI pages.
+- **State 04 — Curriculum and Administrative CMS**:
+  - Implemented strict Zod schemas (`src/lib/validators/curriculum.ts`) for all 6 hierarchy levels (`educationSystem`, `educationLevel`, `examination`, `subject`, `chapter`, `topic`), saved topic toggles, JSON/CSV import-export bundles, and admin user role/status updates.
+  - Created deterministic Bangladesh & International syllabus seed data (`src/modules/curriculum/seed-data.ts`) covering NCTB (`SSC`, `HSC`), Competitive (`UNIV_ADMISSION`, `BCS`), and Cambridge (`A_LEVEL`) systems, `HSC 2027` / `SSC 2027` / `BCS-47` examinations, bilingual subjects & chapters, and topics with learning objectives, key concepts, and prerequisite chains.
+  - Implemented `MongooseCurriculumRepository` (with idempotent MongoDB seeding) and `InMemoryCurriculumRepository` (`src/modules/curriculum/curriculum-repository.ts`), plus `curriculum-service.ts` (`src/modules/curriculum/curriculum-service.ts`) enforcing referential integrity, database pagination, RBAC permissions (`curriculum:read`, `curriculum:write`, `admin:users`), and `auditLogs` recording.
+  - Built `/api/v1/curriculum`, `/api/v1/topics`, `/api/v1/topics/[topicId]`, `/api/v1/topics/saved`, `/api/v1/admin/curriculum`, `/api/v1/admin/curriculum/import-export`, and `/api/v1/admin/users`.
+  - Built interactive Student Curriculum & Syllabus Browser (`/my-learning`, `src/app/(student)/my-learning/page.tsx`) and live Administrative CMS Console (`src/components/admin/admin-cms-console.tsx`, `src/app/admin/[section]/page.tsx`).
 
 ## Current Implementation
 
-- Completed State 03 (Authentication and Student Onboarding).
-- Ready to transition to State 04 (Curriculum and Administrative CMS) upon user instruction.
+- Completed State 04 (Curriculum and Administrative CMS).
+- Ready to transition to State 05 (OpenRouter and Central AI Infrastructure) upon user instruction.
 
 ## Technical Decisions
 
 - **ADR-001..007**: Modular monolith on Next.js App Router, `npm`, 27 normalized Mongoose collections, OpenRouter gateway, hybrid RAG, deterministic SM-2/scheduler, pluggable storage.
-- **State 03 Auth Architecture**: Node `crypto.scrypt` password hashing + HMAC-SHA256 signed `HttpOnly` session cookies (`learnmate_session`) verified in both Node Route Handlers and Edge Middleware (`crypto.subtle`). Self-registration strictly enforces `role: 'student'` and rejects extra fields via Zod `.strict()`.
+- **State 04 Curriculum & CMS Architecture**: Topics and curriculum hierarchy exist independently of AI-generated materials (`FR-CUR-007`), use deterministic 24-hex ObjectIds for initial Bangladesh syllabus seeds, enforce parent-child referential integrity before creation/deletion, and record every CMS or permission mutation in `auditLogs`.
 
 ## Database Status
 
-- Completed collections: All 27 collections compiled into Mongoose models (`src/models/index.ts`); `users` CRUD + cascading deletion across all 16 student-owned collections active in `src/modules/auth/user-repository.ts`.
-- Pending collections: `educationSystems`, `educationLevels`, `examinations`, `subjects`, `chapters`, `topics`, and `auditLogs` CRUD repositories in State 04.
-- Required indexes and migrations: Curriculum hierarchy compound indexes and initial Bangladesh (SSC, HSC, University Admission, BCS) syllabus seeding scheduled for State 04.
+- Completed collections: All 27 collections compiled into Mongoose models (`src/models/index.ts`); active repositories implemented for `users`, `educationSystems`, `educationLevels`, `examinations`, `subjects`, `chapters`, `topics`, and `auditLogs`.
+- Pending collections: `promptTemplates`, `aiUsageLogs`, `appSettings` (State 05); `conversations`, `messages`, `generatedContents` (State 06); `quizzes`, `questions`, `quizAttempts` (State 07); `flashcardDecks`, `flashcards`, `reviewLogs` (State 08); `uploadedMaterials`, `documentChunks` (State 09); `studyPlans`, `studyTasks` (State 10); `progressRecords`, `notifications`, `feedbackReports` (State 11).
+- Required indexes and migrations: All compound indexes registered in `SCHEMA_REGISTRY` and compiled onto Mongoose schemas.
 
 ## Integrations
 
-- MongoDB: CONFIGURED (`.env.local` `MONGODB_URI` present; `MongooseUserRepository` active)
+- MongoDB: CONFIGURED (`.env.local` `MONGODB_URI` present; `MongooseUserRepository` & `MongooseCurriculumRepository` active)
 - OpenRouter: CONFIGURED (`.env.local` `OPENROUTER_API_KEY` present; gateway wired in State 05)
 - Storage: NOT_CONFIGURED (`BLOB_READ_WRITE_TOKEN` empty; local disk adapter used in dev)
 - Vercel: NOT_CONFIGURED
@@ -69,13 +75,13 @@ Decisions: docs/DECISIONS.md
   - `npm run lint` (`node scripts/lint.mjs`)
   - `npm test` (`vitest run`)
   - `npm run build` (`next build`)
-- Passed tests: 15/15 unit & integration tests across `state-01-architecture.test.ts` (6), `state-02-scaffold.test.ts` (3), and `state-03-auth-onboarding.test.ts` (6); 0 lint or typecheck errors; production build succeeded across all routes and middleware.
+- Passed tests: 20/20 unit & integration tests across `state-01-architecture.test.ts` (6), `state-02-scaffold.test.ts` (3), `state-03-auth-onboarding.test.ts` (6), and `state-04-curriculum-cms.test.ts` (5); 0 lint or typecheck errors; production build succeeded across all routes.
 - Failed tests: None.
 - Unresolved issues: None.
 
 ## Known Issues
 
-- None blocking State 04.
+- None blocking State 05.
 
 ## User Feedback
 
@@ -84,6 +90,6 @@ Decisions: docs/DECISIONS.md
 
 ## Next Action
 
-- Exact next implementation state: **State 04 — Curriculum and Administrative CMS**.
-- First task to execute: Implement repositories, services, Zod validators, and `/api/v1/curriculum/*`, `/api/v1/topics/*`, and `/api/v1/admin/curriculum/*` endpoints for the 6-tier hierarchy (`EducationSystem` → `EducationLevel` → `Examination` → `Subject` → `Chapter` → `Topic`), JSON/CSV import-export, database pagination, Bangladesh syllabus seed data, student `/my-learning` topic browser UI, and admin curriculum management UI.
-- Relevant files to inspect: `Context.md`, `docs/PROJECT_SRS.md` (Section 4.3, 4.12), `src/lib/database/schema-registry.ts`, `src/models/index.ts`.
+- Exact next implementation state: **State 05 — OpenRouter and Central AI Infrastructure**.
+- First task to execute: Build the centralized server-side OpenRouter gateway (`src/lib/ai/openrouter-client.ts`, `src/modules/ai/ai-service.ts`), task prompt template registry & `promptTemplates` CRUD, Zod structured output validator with bounded retries and model fallbacks, streaming SSE helper, per-user daily quotas & rate limiting, `aiUsageLogs` persistence, and `/admin/ai-config`, `/admin/prompts`, and `/admin/usage-logs` management interfaces.
+- Relevant files to inspect: `Context.md`, `docs/PROJECT_SRS.md` (Section 4.13, Section 7), `src/lib/ai/config.ts`, `src/lib/database/schema-registry.ts`.

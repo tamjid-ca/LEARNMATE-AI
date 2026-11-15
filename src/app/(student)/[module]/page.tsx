@@ -4,7 +4,10 @@ import { WorkspaceModuleScaffold } from '@/components/shared/page-states';
 
 const VALID_STUDENT_MODULES = new Set(
   STUDENT_NAV_ITEMS.filter(
-    (item) => item.href !== '/dashboard' && item.href !== '/settings',
+    (item) =>
+      item.href !== '/dashboard' &&
+      item.href !== '/settings' &&
+      item.href !== '/my-learning',
   ).map((item) => item.href.replace(/^\//, '')),
 );
 

@@ -35,7 +35,7 @@
 }
 ```
 
-## 3. Implemented Endpoints (Through State 03)
+## 3. Implemented Endpoints (Through State 04)
 
 | Method & Route | Auth | Description |
 | :--- | :--- | :--- |
@@ -52,6 +52,19 @@
 | `DELETE /api/v1/users/profile` | Authenticated | Deletes the user account and purges personal data across all 16 user-owned collections (`FR-AUTH-007`). |
 | `GET /api/v1/onboarding` | Authenticated | Returns current user onboarding state and `ONBOARDING_CURRICULUM_CATALOG`. |
 | `POST /api/v1/onboarding` | Authenticated | Saves country, education system/level, target exam, selected subjects, language, daily study minutes, learning styles, timezone, and marks `onboardingCompleted = true`. |
+| `GET /api/v1/curriculum` | Authenticated | Browses the 6-tier syllabus (`educationSystems`, `educationLevels`, `examinations`, `subjects`, `chapters`, paginated `topics`) and returns student `savedTopicIds`. |
+| `GET /api/v1/topics` | Authenticated | Lists paginated curriculum topics with `subjectId`, `chapterId`, `difficulty`, `search`, and `savedOnly` filters. |
+| `GET /api/v1/topics/[topicId]` | Authenticated | Returns topic details, parent subject & chapter, resolved prerequisite topics, and saved status. |
+| `GET /api/v1/topics/saved` | Authenticated | Lists all topics saved to the authenticated student's personal learning list (`FR-CUR-008`). |
+| `POST /api/v1/topics/saved` | Authenticated | Toggles a `topicId` in the authenticated student's personal learning list (`FR-CUR-008`). |
+| `GET /api/v1/admin/curriculum` | Admin / Content Mgr | Returns full 6-tier curriculum CMS snapshot (including inactive records) and recent `auditLogs`. |
+| `POST /api/v1/admin/curriculum` | Admin / Content Mgr | Creates a new curriculum entity (`educationSystem`..`topic`) with referential integrity validation and `auditLogs` recording. |
+| `PATCH /api/v1/admin/curriculum` | Admin / Content Mgr | Updates an existing curriculum entity and records an audit log. |
+| `DELETE /api/v1/admin/curriculum` | Admin / Content Mgr | Deletes a curriculum entity (blocking deletion if child records exist) and records an audit log. |
+| `GET /api/v1/admin/curriculum/import-export` | Admin / Content Mgr | Exports the curriculum hierarchy as a JSON bundle or CSV topic sheet (`FR-CUR-009`). |
+| `POST /api/v1/admin/curriculum/import-export` | Admin / Content Mgr | Imports validated JSON bundles or CSV topic rows and records an audit log (`FR-CUR-009`). |
+| `GET /api/v1/admin/users` | Admin (`admin:users`) | Lists platform users with role, status, search, and pagination filters (`FR-ADMIN-003`). |
+| `PATCH /api/v1/admin/users` | Admin (`admin:users`) | Updates user `role` or `status` (preventing self-demotion/self-suspension) and logs to `auditLogs`. |
 
 ## 4. Planned Endpoint Groups (States 04–12)
 
