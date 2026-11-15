@@ -1,7 +1,9 @@
 /**
- * LearnMate AI — Serverless MongoDB / Mongoose Connection Manager Contract
+ * LearnMate AI — Serverless MongoDB / Mongoose Connection Manager
  * Caches connection promises across warm serverless invocations (SRS Section 6.2 Rule 11).
  */
+
+import mongoose, { type MongooseInstance } from 'mongoose';
 
 export interface DatabaseConnectionConfig {
   uri: string;
@@ -29,4 +31,44 @@ export function buildDatabaseConnectionConfig(
     uri,
     ...DEFAULT_DB_POOL_CONFIG,
   };
+}
+
+interface GlobalMongooseCache {
+  conn: MongooseInstance | null;
+  promise: Promise<MongooseInstance> | null;
+}
+
+declare global {
+  var __learnmateMongooseCache: GlobalMongooseCache | undefined;
+}
+
+const cached: GlobalMongooseCache = globalThis.__learnmateMongooseCache ?? {
+  conn: null,
+  promise: null,
+};
+globalThis.__learnmateMongooseCache = cached;
+
+export async function connectToDatabase(): Promise<MongooseInstance> {
+  if (cached.conn && mongoose.connection.readyState === 1) {
+    return cached.conn;
+  }
+
+  const config = buildDatabaseConnectionConfig();
+  if (!cached.promise) {
+    cached.promise = mongoose.connect(config.uri, {
+      maxPoolSize: config.maxPoolSize,
+      minPoolSize: config.minPoolSize,
+      serverSelectionTimeoutMS: config.serverSelectionTimeoutMS,
+      socketTimeoutMS: config.socketTimeoutMS,
+      bufferCommands: false,
+    });
+  }
+
+  try {
+    cached.conn = await cached.promise;
+    return cached.conn;
+  } catch (err) {
+    cached.promise = null;
+    throw err;
+  }
 }

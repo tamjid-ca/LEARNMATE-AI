@@ -1,4 +1,4 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 
 import { AI_TASK_TYPES, COLLECTION_NAMES, MATERIAL_TYPES, QUESTION_TYPES } from '../src/types/domain.ts';
@@ -174,6 +174,6 @@ test('SRS Section 4.9 & 11: Upload validation and document ingestion state machi
   assert.equal(canTransitionDocumentStatus('extracting', 'chunking'), true);
   assert.equal(canTransitionDocumentStatus('chunking', 'indexing'), true);
   assert.equal(canTransitionDocumentStatus('indexing', 'ready'), true);
-  assert.equal(canTransitionDocumentStatus('failed', 'extracting'), true); // idempotent retry
+  assert.equal(canTransitionDocumentStatus('failed', 'extracting'), true);
   assert.equal(canTransitionDocumentStatus('uploaded', 'ready'), false);
 });

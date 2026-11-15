@@ -6,7 +6,7 @@
 | :--- | :--- | :--- | :--- |
 | **00** | Initial Environment & Agent Setup | `COMPLETE` | Workspace reconnaissance, `.agents/plugins/learnmate-engineering` plugin & skills validated, permanent docs & `Context.md` initialized. |
 | **01** | Architecture & Database Design | `COMPLETE` | Finalized module boundaries, all 27 collection schemas & indexes (`src/lib/database/schema-registry.ts`), RBAC, API envelopes, AI & storage/job contracts, and 6 automated architecture tests. |
-| **02** | Project Scaffold & Design System | `NOT_STARTED` | Initialize Next.js App Router + TypeScript + Tailwind + shadcn/ui, responsive shell, dark/light themes, bilingual UI support, public landing page. |
+| **02** | Project Scaffold & Design System | `COMPLETE` | Initialized Next.js 15 App Router + React 19 + TypeScript + Tailwind CSS v4 + shadcn/ui primitives, dark/light theme & Bangla/English provider, responsive collapsible Student (11 routes) & Admin (13 routes) shell, public landing page, loading/empty/error states, and Mongoose runtime model factory. |
 | **03** | Authentication & Student Onboarding | `NOT_STARTED` | Registration, login, session management, server RBAC, profile settings, multi-step student onboarding, auth unit/integration tests. |
 | **04** | Curriculum & Administrative CMS | `NOT_STARTED` | Full 6-tier hierarchy CRUD (`EducationSystem` → `Topic`), JSON/CSV import-export, admin CMS UI, student curriculum browser, pagination & indexes. |
 | **05** | OpenRouter & Central AI Infrastructure | `NOT_STARTED` | Server-side OpenRouter gateway, model registry, prompt templates, Zod output validation, streaming, retries/fallbacks, quotas, `aiUsageLogs`, admin AI config. |
