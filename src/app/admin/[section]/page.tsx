@@ -1,5 +1,9 @@
 import { notFound } from 'next/navigation';
 import {
+  AdminAIConsole,
+  type AdminAISection,
+} from '@/components/admin/admin-ai-console';
+import {
   AdminCmsConsole,
   type AdminCmsSection,
 } from '@/components/admin/admin-cms-console';
@@ -20,6 +24,12 @@ const LIVE_CMS_SECTIONS = new Set<AdminCmsSection>([
   'topics',
   'users',
   'audit-logs',
+]);
+
+const LIVE_AI_SECTIONS = new Set<AdminAISection>([
+  'ai-config',
+  'prompts',
+  'usage-logs',
 ]);
 
 export function generateStaticParams() {
@@ -43,7 +53,7 @@ export default async function AdminSectionPage({
       <div className="space-y-6">
         <div>
           <Badge variant="default" className="mb-2">
-            Administrative CMS · State 04 Live
+            Administrative CMS · Live
           </Badge>
           <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
             {navItem?.labelEn ?? section}
@@ -53,6 +63,25 @@ export default async function AdminSectionPage({
           </p>
         </div>
         <AdminCmsConsole section={section as AdminCmsSection} />
+      </div>
+    );
+  }
+
+  if (LIVE_AI_SECTIONS.has(section as AdminAISection)) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <Badge variant="default" className="mb-2">
+            OpenRouter & AI Governance · State 05 Live
+          </Badge>
+          <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
+            {navItem?.labelEn ?? section}
+          </h1>
+          <p className="text-sm text-zinc-600 dark:text-zinc-400">
+            {navItem?.descriptionEn ?? 'Centralized OpenRouter gateway configuration & telemetry.'}
+          </p>
+        </div>
+        <AdminAIConsole section={section as AdminAISection} />
       </div>
     );
   }

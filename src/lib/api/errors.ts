@@ -56,8 +56,18 @@ export class AppError extends Error {
     return new AppError(ERROR_CODES.RATE_LIMITED, message, 429);
   }
 
-  static aiUnavailable(message = 'AI service is temporarily unavailable; non-AI features remain active'): AppError {
-    return new AppError(ERROR_CODES.AI_PROVIDER_UNAVAILABLE, message, 503);
+  static aiUnavailable(
+    message = 'AI service is temporarily unavailable; non-AI features remain active',
+    details?: unknown,
+  ): AppError {
+    return new AppError(ERROR_CODES.AI_PROVIDER_UNAVAILABLE, message, 503, details);
+  }
+
+  static aiProvider(
+    message = 'AI service is temporarily unavailable; non-AI features remain active',
+    details?: unknown,
+  ): AppError {
+    return new AppError(ERROR_CODES.AI_PROVIDER_UNAVAILABLE, message, 503, details);
   }
 }
 

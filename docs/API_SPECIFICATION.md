@@ -35,7 +35,7 @@
 }
 ```
 
-## 3. Implemented Endpoints (Through State 04)
+## 3. Implemented Endpoints (Through State 05)
 
 | Method & Route | Auth | Description |
 | :--- | :--- | :--- |
@@ -65,6 +65,11 @@
 | `POST /api/v1/admin/curriculum/import-export` | Admin / Content Mgr | Imports validated JSON bundles or CSV topic rows and records an audit log (`FR-CUR-009`). |
 | `GET /api/v1/admin/users` | Admin (`admin:users`) | Lists platform users with role, status, search, and pagination filters (`FR-ADMIN-003`). |
 | `PATCH /api/v1/admin/users` | Admin (`admin:users`) | Updates user `role` or `status` (preventing self-demotion/self-suspension) and logs to `auditLogs`. |
+| `GET /api/v1/admin/ai/config` | Admin (`admin:ai_config`) | Returns active OpenRouter default/task/fallback models, student daily quotas, caching flag, and key status (`FR-ADMIN-007`). |
+| `PATCH /api/v1/admin/ai/config` | Admin (`admin:ai_config`) | Updates OpenRouter model routing, fallback models, daily request/token quotas, and response caching (`FR-ADMIN-009`). |
+| `GET /api/v1/admin/ai/prompts` | Admin (`admin:prompts`) | Lists versioned prompt templates across all 9 AI task types (`FR-ADMIN-006`). |
+| `POST /api/v1/admin/ai/prompts` | Admin (`admin:prompts`) | Publishes a new versioned prompt template for an AI task and records an audit log. |
+| `GET /api/v1/admin/ai/usage` | Admin (`admin:usage_logs`) | Returns paginated `aiUsageLogs` and aggregate token, latency, cache, and error telemetry (`FR-ADMIN-008`, `FR-AI-010`). |
 
 ## 4. Planned Endpoint Groups (States 04–12)
 
