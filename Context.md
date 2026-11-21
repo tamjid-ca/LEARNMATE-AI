@@ -9,9 +9,9 @@ Deployment: Vercel
 
 ## Current State
 
-CURRENT_STATE: 10
+CURRENT_STATE: 11
 STATUS: COMPLETE
-LAST_COMPLETED_STATE: 10
+LAST_COMPLETED_STATE: 11
 
 ## Product Requirements
 
@@ -77,27 +77,33 @@ Decisions: docs/DECISIONS.md
   - Implemented `MongooseStudyPlanRepository` and `InMemoryStudyPlanRepository` (`src/modules/planner/planner-repository.ts`) persisting `studyPlans` and `studyTasks`.
   - Implemented `planner-service.ts` (`src/modules/planner/planner-service.ts`) integrating verified student performance signals (`quizAttempts.weakTopicIds` and overdue/difficult `flashcards` — `FR-PLAN-009`, `FR-PLAN-010`) with AI advisor summaries (`executeStructuredAITask` for `taskType: 'planner'`).
   - Built `/api/v1/study-plans`, `/api/v1/study-plans/[planId]`, and `/api/v1/study-tasks/[taskId]` Route Handlers, plus the interactive Student Study Planner UI (`/planner`) with List, Calendar, and Roadmap/Milestones views (`FR-PLAN-005`).
+- **State 11 — Analytics, Notifications and Gamification**:
+  - Implemented strict Zod schemas (`src/lib/validators/analytics-notifications.ts`) for topic progress logging, analytics queries, and notification actions (`mark_read`, `mark_all_read`, `update_preferences`).
+  - Implemented `MongooseAnalyticsRepository` and `InMemoryAnalyticsRepository` (`src/modules/analytics/analytics-repository.ts`) persisting `progressRecords` and deduplicated `notifications` (`dedupeKey`).
+  - Implemented `analytics-service.ts` (`src/modules/analytics/analytics-service.ts`) providing deterministic topic mastery estimates (`computeTopicMasteryEstimate` labeled explicitly as estimates per `FR-ANALYTICS-008`), consecutive-day streak calculation (`calculateLearningStreak`), anti-gaming study points & achievement milestones (`computeGamificationSummary` — `FR-GAME-001..004`), explainable adaptive recommendations with inspectable `evidenceBasis` (`FR-ANALYTICS-005..007`), and preference-aware notification syncing (`FR-NOTIFY-001..003`).
+  - Built `/api/v1/analytics` and `/api/v1/notifications` Route Handlers, plus interactive Student Analytics (`/analytics`), Notifications & Preferences (`/notifications`), and live Student Dashboard (`/dashboard`) UI pages.
 
 ## Current Implementation
 
-- Completed State 10 (Personalized Study Planner).
-- Ready to transition to State 11 (Analytics, Notifications and Gamification) upon user instruction.
+- Completed State 11 (Analytics, Notifications and Gamification).
+- Ready to transition to State 12 (Complete Integration, QA and Security Hardening) upon user instruction.
 
 ## Technical Decisions
 
 - **ADR-001..007**: Modular monolith on Next.js App Router, `npm`, 27 normalized Mongoose collections, OpenRouter gateway, hybrid RAG, deterministic SM-2/scheduler, pluggable storage.
 - **State 09 Grounded RAG & Prompt-Injection Defense Architecture**: Every retrieved document chunk is sanitized (`sanitizeUntrustedChunkText`) and wrapped inside `<untrusted_document_chunk index="N" page="P" section="S">` before interpolation into the `document_qa` prompt template, preventing untrusted PDF/DOCX/TXT passages from overriding system instructions. `getActiveRetrievalMode()` reports `'keyword'` unless both `OPENROUTER_EMBEDDING_MODEL` and `ATLAS_VECTOR_INDEX_NAME` are configured (`FR-DOC-011`).
 - **State 10 Deterministic Scheduling & Honest Syllabus Weighting (`FR-PLAN-011`)**: `scheduler-engine.ts` computes all calendar dates, daily minute capacities, and weekly milestones deterministically. Official syllabus priority scores are applied strictly when `topic.syllabusWeightVerified === true`; otherwise topics are ordered by topological prerequisites, verified quiz weak-topic diagnostics, due spaced-repetition flashcards, and student proficiency estimates.
+- **State 11 Explainable Mastery Estimates & Anti-Gaming Gamification (`FR-ANALYTICS-007..008`, `FR-GAME-004`)**: Topic mastery scores (`0..100`, bands `unstarted | weak | developing | strong`) are computed deterministically from verified quiz accuracy, flashcard reviews, and topic completions and explicitly presented as estimates. Every adaptive recommendation includes an inspectable `evidenceBasis` string, and study points are awarded strictly for verified learning milestones rather than repeated unverified actions.
 
 ## Database Status
 
-- Completed collections: All 27 collections compiled into Mongoose models (`src/models/index.ts`); active repositories implemented for `users`, `educationSystems`, `educationLevels`, `examinations`, `subjects`, `chapters`, `topics`, `promptTemplates`, `aiUsageLogs`, `appSettings`, `auditLogs`, `conversations`, `messages`, `generatedContents`, `feedbackReports`, `quizzes`, `questions`, `quizAttempts`, `flashcardDecks`, `flashcards`, `reviewLogs`, `uploadedMaterials`, `documentChunks`, `studyPlans`, and `studyTasks`.
-- Pending collections: `progressRecords`, `notifications` (State 11).
+- Completed collections: All 27 collections compiled into Mongoose models (`src/models/index.ts`) with active repositories across the entire schema (`users`, `educationSystems`, `educationLevels`, `examinations`, `subjects`, `chapters`, `topics`, `promptTemplates`, `aiUsageLogs`, `appSettings`, `auditLogs`, `conversations`, `messages`, `generatedContents`, `feedbackReports`, `quizzes`, `questions`, `quizAttempts`, `flashcardDecks`, `flashcards`, `reviewLogs`, `uploadedMaterials`, `documentChunks`, `studyPlans`, `studyTasks`, `progressRecords`, and `notifications`).
+- Pending collections: None (all 27 collections active).
 - Required indexes and migrations: All compound indexes registered in `SCHEMA_REGISTRY` and compiled onto Mongoose schemas.
 
 ## Integrations
 
-- MongoDB: CONFIGURED (`.env.local` `MONGODB_URI` present; active repositories for Auth, Curriculum, AI, Tutor/Materials, Quizzes/Exams, Flashcards/Reviews, Documents/RAG, and Study Planner)
+- MongoDB: CONFIGURED (`.env.local` `MONGODB_URI` present; active repositories for all 27 collections)
 - OpenRouter: CONFIGURED (`.env.local` `OPENROUTER_API_KEY` present; centralized gateway active in `src/lib/ai/openrouter-client.ts` & `src/modules/ai/ai-service.ts`)
 - Storage: NOT_CONFIGURED (`BLOB_READ_WRITE_TOKEN` empty; local disk metadata adapter used in dev)
 - Vercel: NOT_CONFIGURED
@@ -109,13 +115,13 @@ Decisions: docs/DECISIONS.md
   - `npm run lint` (`node scripts/lint.mjs`)
   - `npm test` (`vitest run`)
   - `npm run build` (`next build`)
-- Passed tests: 41/41 unit & integration tests across `state-01-architecture.test.ts` (6), `state-02-scaffold.test.ts` (3), `state-03-auth-onboarding.test.ts` (6), `state-04-curriculum-cms.test.ts` (5), `state-05-ai-infrastructure.test.ts` (5), `state-06-tutor-materials.test.ts` (4), `state-07-quizzes-exams.test.ts` (3), `state-08-flashcards-sm2.test.ts` (3), `state-09-documents-rag.test.ts` (3), and `state-10-study-planner.test.ts` (3); 0 lint or typecheck errors; production build succeeded across all 60 routes.
+- Passed tests: 44/44 unit & integration tests across `state-01-architecture.test.ts` (6), `state-02-scaffold.test.ts` (3), `state-03-auth-onboarding.test.ts` (6), `state-04-curriculum-cms.test.ts` (5), `state-05-ai-infrastructure.test.ts` (5), `state-06-tutor-materials.test.ts` (4), `state-07-quizzes-exams.test.ts` (3), `state-08-flashcards-sm2.test.ts` (3), `state-09-documents-rag.test.ts` (3), `state-10-study-planner.test.ts` (3), and `state-11-analytics-notifications.test.ts` (3); 0 lint or typecheck errors; production build succeeded across all routes.
 - Failed tests: None.
 - Unresolved issues: None.
 
 ## Known Issues
 
-- None blocking State 11.
+- None blocking State 12.
 
 ## User Feedback
 
@@ -124,6 +130,6 @@ Decisions: docs/DECISIONS.md
 
 ## Next Action
 
-- Exact next implementation state: **State 11 — Analytics, Notifications and Gamification**.
-- First task to execute: Implement repositories and services for `progressRecords` and `notifications`, calculate subject-wise performance & topic mastery estimates from verified quiz attempts, flashcard reviews, and completed study tasks, implement learning streaks, milestones, explainable adaptive recommendations, `/api/v1/analytics/*` & `/api/v1/notifications/*` endpoints, and integrate the Student `/dashboard`, `/analytics`, and `/notifications` UI pages.
-- Relevant files to inspect: `Context.md`, `docs/PROJECT_SRS.md` (Sections 4.10 & 4.11), `src/app/(student)/dashboard/page.tsx`.
+- Exact next implementation state: **State 12 — Complete Integration, QA and Security Hardening**.
+- First task to execute: Run comprehensive cross-module integration and security audit tests (RBAC, ownership isolation across all user collections, upload validation, prompt-injection defense, rate limiting, secret redaction), configure and verify Playwright E2E test suite, and validate full production build and responsive accessibility.
+- Relevant files to inspect: `Context.md`, `ANTIGRAVITY_MASTER_PROMPT.md` (State 12), `scripts/lint.mjs`, `tests/*.test.ts`.

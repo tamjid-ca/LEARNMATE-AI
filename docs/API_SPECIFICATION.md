@@ -35,7 +35,7 @@
 }
 ```
 
-## 3. Implemented Endpoints (Through State 10)
+## 3. Implemented Endpoints (Through State 11)
 
 | Method & Route | Auth | Description |
 | :--- | :--- | :--- |
@@ -111,6 +111,10 @@
 | `DELETE /api/v1/study-plans/[planId]` | Authenticated (Owner) | Deletes a study plan and cascades deletion across its `studyTasks`. |
 | `PATCH /api/v1/study-tasks/[taskId]` | Authenticated (Owner) | Marks a study task `completed`, `skipped`, `rescheduled`, or `pending`, or manually edits its title, date, or duration (`FR-PLAN-006`, `FR-PLAN-007`). |
 | `DELETE /api/v1/study-tasks/[taskId]` | Authenticated (Owner) | Deletes a study task and updates the parent plan's completion percentage. |
+| `GET /api/v1/analytics` | Authenticated | Syncs `progressRecords` from verified quiz attempts, flashcard reviews, and completed study tasks; returns overall KPIs, subject performance, estimated topic mastery (`FR-ANALYTICS-008`), strong/weak topics, performance trends, explainable recommendations with `evidenceBasis` (`FR-ANALYTICS-007`), streaks, and anti-gaming study points/milestones (`FR-ANALYTICS-001..008`, `FR-GAME-001..004`). |
+| `POST /api/v1/analytics` | Authenticated | Records explicit topic study minutes or completion status and recomputes estimated topic mastery (`FR-ANALYTICS-002`). |
+| `GET /api/v1/notifications` | Authenticated | Synchronizes deduplicated in-app notifications (`study_reminder`, `upcoming_revision`, `due_flashcards`, `upcoming_exam`, `missed_task`, `learning_milestone`) honoring user `notificationPreferences` and returns notifications + unread count (`FR-NOTIFY-001..003`). |
+| `PATCH /api/v1/notifications` | Authenticated | Marks an individual notification or all notifications as read, or updates the student's `notificationPreferences` (`FR-NOTIFY-001..003`). |
 
 ## 4. Planned Endpoint Groups (States 04–12)
 
