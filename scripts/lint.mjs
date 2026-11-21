@@ -49,8 +49,13 @@ for (const file of files) {
     }
   }
 
-  if (/\beval\s*\(/.test(content)) {
-    console.error(`[LINT ERROR] ${rel}: Forbidden use of eval()`);
+  if (/\beval\s*\(/.test(content) || /\bnew\s+Function\s*\(/.test(content)) {
+    console.error(`[LINT ERROR] ${rel}: Forbidden dynamic code execution (eval/new Function)`);
+    violations++;
+  }
+
+  if (content.includes('dangerouslySetInnerHTML')) {
+    console.error(`[LINT ERROR] ${rel}: Forbidden dangerouslySetInnerHTML usage (use safe React Markdown rendering)`);
     violations++;
   }
 

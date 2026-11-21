@@ -28,14 +28,14 @@
 {
   "success": false,
   "error": {
-    "code": "VALIDATION_ERROR",
-    "message": "Human-readable error summary",
+    "code": "VALIDATION_ERROR | UNAUTHORIZED | FORBIDDEN | NOT_FOUND | CONFLICT | RATE_LIMITED | AI_QUOTA_EXCEEDED | AI_PROVIDER_UNAVAILABLE | DATABASE_UNAVAILABLE | INTERNAL_ERROR",
+    "message": "Human-readable error summary (sanitized; never exposes URIs or secrets)",
     "details": []
   }
 }
 ```
 
-## 3. Implemented Endpoints (Through State 11)
+## 3. Implemented Endpoints (Through State 12)
 
 | Method & Route | Auth | Description |
 | :--- | :--- | :--- |
@@ -71,14 +71,14 @@
 | `POST /api/v1/admin/ai/prompts` | Admin (`admin:prompts`) | Publishes a new versioned prompt template for an AI task and records an audit log. |
 | `GET /api/v1/admin/ai/usage` | Admin (`admin:usage_logs`) | Returns paginated `aiUsageLogs` and aggregate token, latency, cache, and error telemetry (`FR-ADMIN-008`, `FR-AI-010`). |
 | `GET /api/v1/tutor/conversations` | Authenticated | Lists the authenticated student's AI Tutor conversations (`FR-TUTOR-002`). |
-| `POST /api/v1/tutor/conversations` | Authenticated | Starts a new contextual AI Tutor conversation bound to a curriculum topic/chapter/subject, optionally executing an initial message turn (`FR-TUTOR-001`, `FR-TUTOR-003`). |
+| `POST /api/v1/tutor/conversations` | Authenticated | Starts a new contextual AI Tutor conversation bound to a curriculum topic/chapter/subject with optional `customSystemPrompt`, optionally executing an initial message turn (`FR-TUTOR-001`, `FR-TUTOR-003`). |
 | `GET /api/v1/tutor/conversations/[conversationId]` | Authenticated (Owner) | Returns conversation metadata and chronological message history (`FR-TUTOR-002`). |
-| `PATCH /api/v1/tutor/conversations/[conversationId]` | Authenticated (Owner) | Renames, archives, or updates language/depth settings on a tutor conversation (`FR-TUTOR-008`). |
+| `PATCH /api/v1/tutor/conversations/[conversationId]` | Authenticated (Owner) | Renames, archives, updates language/depth, switches `subjectId`/`chapterId`/`topicId` context, or updates `customSystemPrompt` (`FR-TUTOR-008`). |
 | `DELETE /api/v1/tutor/conversations/[conversationId]` | Authenticated (Owner) | Deletes a tutor conversation and cascades deletion across its messages (`FR-TUTOR-008`). |
-| `POST /api/v1/tutor/conversations/[conversationId]/messages` | Authenticated (Owner) | Sends a student question with pedagogical response style (`step_by_step`, `examples`, etc.), attaches curriculum `sourceReferences`, and returns JSON or `text/event-stream` SSE (`FR-TUTOR-004..011`). |
+| `POST /api/v1/tutor/conversations/[conversationId]/messages` | Authenticated (Owner, Rate-limited) | Sends a student question with optional mid-chat topic-context & `customSystemPrompt` updates, pedagogical style, attaches curriculum `sourceReferences`, and returns JSON or `text/event-stream` SSE (`FR-TUTOR-004..011`). |
 | `POST /api/v1/tutor/messages/[messageId]/feedback` | Authenticated (Owner) | Rates a tutor message (`helpful`, `unhelpful`, `flagged`) and records a `feedbackReports` entry when flagged (`FR-TUTOR-012`). |
 | `GET /api/v1/materials` | Authenticated | Lists paginated study materials in the student's personal library with `subjectId`, `topicId`, `materialType`, `language`, and `savedOnly` filters (`FR-MAT-005`). |
-| `POST /api/v1/materials` | Authenticated | Generates structured study notes across all 12 `MaterialType` entries, reusing cached personal notes unless `regenerate: true` is specified (`FR-MAT-002..006`). |
+| `POST /api/v1/materials` | Authenticated (Rate-limited) | Generates structured study notes across all 12 `MaterialType` entries from either a syllabus `topicId` or `customTopicTitle` (with Markdown-to-structured fallback), reusing cached personal notes unless `regenerate: true` is specified (`FR-MAT-002..006`). |
 | `GET /api/v1/materials/[materialId]` | Authenticated (Owner) | Retrieves a single generated study material record (`FR-MAT-005`). |
 | `PATCH /api/v1/materials/[materialId]` | Authenticated (Owner) | Updates personal study note title, Markdown content, library save status, or flags for review (`FR-MAT-005`). |
 | `DELETE /api/v1/materials/[materialId]` | Authenticated (Owner) | Deletes a generated study material from the student's personal library (`FR-MAT-005`). |

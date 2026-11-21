@@ -6,6 +6,7 @@
 
 import { randomBytes } from 'node:crypto';
 import mongoose, { type Types } from 'mongoose';
+import { AppError } from '../../lib/api/errors.ts';
 import { connectToDatabase } from '../../lib/database/mongoose.ts';
 import { getMongooseModel } from '../../models/index.ts';
 import type {
@@ -24,6 +25,7 @@ export interface ConversationRecord {
   uploadedMaterialId?: string;
   language: SupportedLanguage;
   explanationDepth: ExplanationDepth;
+  customSystemPrompt?: string;
   messageCount: number;
   lastMessageAt?: Date | null;
   isArchived: boolean;
@@ -154,6 +156,18 @@ function toValidObjectIdOrUndefined(id?: string): Types.ObjectId | undefined {
   return id && mongoose.Types.ObjectId.isValid(id) ? new mongoose.Types.ObjectId(id) : undefined;
 }
 
+function unwrapMongooseDoc(doc: unknown): Record<string, unknown> {
+  if (
+    doc &&
+    typeof doc === 'object' &&
+    'toObject' in doc &&
+    typeof (doc as { toObject: () => Record<string, unknown> }).toObject === 'function'
+  ) {
+    return (doc as { toObject: () => Record<string, unknown> }).toObject();
+  }
+  return (doc ?? {}) as Record<string, unknown>;
+}
+
 function mapDocToConversation(doc: Record<string, unknown>): ConversationRecord {
   return {
     id: String(doc._id),
@@ -165,6 +179,7 @@ function mapDocToConversation(doc: Record<string, unknown>): ConversationRecord 
     uploadedMaterialId: doc.uploadedMaterialId ? String(doc.uploadedMaterialId) : undefined,
     language: (doc.language as SupportedLanguage) ?? 'en',
     explanationDepth: (doc.explanationDepth as ExplanationDepth) ?? 'intermediate',
+    customSystemPrompt: doc.customSystemPrompt ? String(doc.customSystemPrompt) : undefined,
     messageCount: typeof doc.messageCount === 'number' ? doc.messageCount : 0,
     lastMessageAt: doc.lastMessageAt ? new Date(String(doc.lastMessageAt)) : null,
     isArchived: Boolean(doc.isArchived),
@@ -244,6 +259,9 @@ export class MongooseTutorMaterialsRepository implements TutorMaterialsRepositor
   async createConversation(
     data: Omit<ConversationRecord, 'id' | 'createdAt' | 'updatedAt'>,
   ): Promise<ConversationRecord> {
+    if (!mongoose.Types.ObjectId.isValid(data.userId)) {
+      throw AppError.unauthorized('Invalid user session identifier');
+    }
     await connectToDatabase();
     const Model = getMongooseModel('conversations');
     const created = await Model.create({
@@ -255,11 +273,12 @@ export class MongooseTutorMaterialsRepository implements TutorMaterialsRepositor
       uploadedMaterialId: toValidObjectIdOrUndefined(data.uploadedMaterialId),
       language: data.language,
       explanationDepth: data.explanationDepth,
+      ...(data.customSystemPrompt ? { customSystemPrompt: data.customSystemPrompt } : {}),
       messageCount: data.messageCount,
       lastMessageAt: data.lastMessageAt ?? new Date(),
       isArchived: data.isArchived,
     });
-    return mapDocToConversation(created as unknown as Record<string, unknown>);
+    return mapDocToConversation(unwrapMongooseDoc(created));
   }
 
   async updateConversation(
@@ -269,7 +288,31 @@ export class MongooseTutorMaterialsRepository implements TutorMaterialsRepositor
     if (!mongoose.Types.ObjectId.isValid(id)) return null;
     await connectToDatabase();
     const Model = getMongooseModel('conversations');
-    const updated = await Model.findByIdAndUpdate(id, { $set: patch }, { new: true }).lean();
+    const setFields: Record<string, unknown> = {};
+    const unsetFields: Record<string, unknown> = {};
+
+    for (const [key, value] of Object.entries(patch)) {
+      if (key === 'subjectId' || key === 'chapterId' || key === 'topicId') {
+        if (typeof value === 'string' && mongoose.Types.ObjectId.isValid(value)) {
+          setFields[key] = new mongoose.Types.ObjectId(value);
+        } else if (value === undefined) {
+          unsetFields[key] = 1;
+        }
+      } else if (value === undefined && key === 'customSystemPrompt') {
+        unsetFields[key] = 1;
+      } else if (value !== undefined) {
+        setFields[key] = value;
+      }
+    }
+
+    const updateQuery: Record<string, unknown> = {};
+    if (Object.keys(setFields).length > 0) updateQuery.$set = setFields;
+    if (Object.keys(unsetFields).length > 0) updateQuery.$unset = unsetFields;
+    if (Object.keys(updateQuery).length === 0) {
+      return this.findConversationById(id);
+    }
+
+    const updated = await Model.findByIdAndUpdate(id, updateQuery, { new: true }).lean();
     return updated ? mapDocToConversation(updated) : null;
   }
 
@@ -319,6 +362,12 @@ export class MongooseTutorMaterialsRepository implements TutorMaterialsRepositor
   async createMessage(
     data: Omit<MessageRecord, 'id' | 'createdAt' | 'updatedAt'>,
   ): Promise<MessageRecord> {
+    if (!mongoose.Types.ObjectId.isValid(data.userId)) {
+      throw AppError.unauthorized('Invalid user session identifier');
+    }
+    if (!mongoose.Types.ObjectId.isValid(data.conversationId)) {
+      throw AppError.validation('Invalid conversation identifier');
+    }
     await connectToDatabase();
     const Model = getMongooseModel('messages');
     const created = await Model.create({
@@ -331,7 +380,7 @@ export class MongooseTutorMaterialsRepository implements TutorMaterialsRepositor
       sourceReferences: data.sourceReferences,
       feedbackRating: data.feedbackRating,
     });
-    return mapDocToMessage(created as unknown as Record<string, unknown>);
+    return mapDocToMessage(unwrapMongooseDoc(created));
   }
 
   async updateMessageFeedback(
@@ -409,6 +458,9 @@ export class MongooseTutorMaterialsRepository implements TutorMaterialsRepositor
   async createMaterial(
     data: Omit<GeneratedContentRecord, 'id' | 'createdAt' | 'updatedAt'>,
   ): Promise<GeneratedContentRecord> {
+    if (!mongoose.Types.ObjectId.isValid(data.userId)) {
+      throw AppError.unauthorized('Invalid user session identifier');
+    }
     await connectToDatabase();
     const Model = getMongooseModel('generatedContents');
     const created = await Model.create({
@@ -429,7 +481,7 @@ export class MongooseTutorMaterialsRepository implements TutorMaterialsRepositor
       isFlagged: data.isFlagged,
       cacheKey: data.cacheKey,
     });
-    return mapDocToGeneratedContent(created as unknown as Record<string, unknown>);
+    return mapDocToGeneratedContent(unwrapMongooseDoc(created));
   }
 
   async updateMaterial(

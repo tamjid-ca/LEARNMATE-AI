@@ -257,99 +257,170 @@ function mapDocToAuditLog(doc: Record<string, unknown>): AuditLogRecord {
 
 let mongoSeededPromise: Promise<void> | null = null;
 
+function isDuplicateKeyError(err: unknown): boolean {
+  return Boolean(
+    err && typeof err === 'object' && (err as { code?: number | string }).code === 11000,
+  );
+}
+
 export class MongooseCurriculumRepository implements CurriculumRepository {
   private async ensureSeeded(): Promise<void> {
     if (!mongoSeededPromise) {
       mongoSeededPromise = (async () => {
         await connectToDatabase();
         const SystemModel = getMongooseModel('educationSystems');
-        const count = await SystemModel.countDocuments({});
-        if (count > 0) return;
-
         const LevelModel = getMongooseModel('educationLevels');
         const ExamModel = getMongooseModel('examinations');
         const SubjectModel = getMongooseModel('subjects');
         const ChapterModel = getMongooseModel('chapters');
         const TopicModel = getMongooseModel('topics');
 
-        for (const item of INITIAL_EDUCATION_SYSTEMS) {
-          await SystemModel.findOneAndUpdate(
-            { _id: new mongoose.Types.ObjectId(item.id) },
-            { $setOnInsert: { ...item, _id: new mongoose.Types.ObjectId(item.id) } },
-            { upsert: true, new: true },
-          );
+        const [sysCount, lvlCount, examCount, subCount, chapCount, topicCount] = await Promise.all([
+          SystemModel.countDocuments({}),
+          LevelModel.countDocuments({}),
+          ExamModel.countDocuments({}),
+          SubjectModel.countDocuments({}),
+          ChapterModel.countDocuments({}),
+          TopicModel.countDocuments({}),
+        ]);
+
+        if (sysCount === 0) {
+          for (const item of INITIAL_EDUCATION_SYSTEMS) {
+            const { id, createdAt: _c, updatedAt: _u, ...rest } = item;
+            void _c;
+            void _u;
+            try {
+              await SystemModel.findOneAndUpdate(
+                { _id: new mongoose.Types.ObjectId(id) },
+                { $setOnInsert: { ...rest, _id: new mongoose.Types.ObjectId(id) } },
+                { upsert: true, new: true },
+              );
+            } catch (err) {
+              if (!isDuplicateKeyError(err)) throw err;
+            }
+          }
         }
-        for (const item of INITIAL_EDUCATION_LEVELS) {
-          await LevelModel.findOneAndUpdate(
-            { _id: new mongoose.Types.ObjectId(item.id) },
-            {
-              $setOnInsert: {
-                ...item,
-                _id: new mongoose.Types.ObjectId(item.id),
-                educationSystemId: new mongoose.Types.ObjectId(item.educationSystemId),
-              },
-            },
-            { upsert: true, new: true },
-          );
+
+        if (lvlCount === 0) {
+          for (const item of INITIAL_EDUCATION_LEVELS) {
+            const { id, createdAt: _c, updatedAt: _u, ...rest } = item;
+            void _c;
+            void _u;
+            try {
+              await LevelModel.findOneAndUpdate(
+                { _id: new mongoose.Types.ObjectId(id) },
+                {
+                  $setOnInsert: {
+                    ...rest,
+                    _id: new mongoose.Types.ObjectId(id),
+                    educationSystemId: new mongoose.Types.ObjectId(item.educationSystemId),
+                  },
+                },
+                { upsert: true, new: true },
+              );
+            } catch (err) {
+              if (!isDuplicateKeyError(err)) throw err;
+            }
+          }
         }
-        for (const item of INITIAL_EXAMINATIONS) {
-          await ExamModel.findOneAndUpdate(
-            { _id: new mongoose.Types.ObjectId(item.id) },
-            {
-              $setOnInsert: {
-                ...item,
-                _id: new mongoose.Types.ObjectId(item.id),
-                educationSystemId: new mongoose.Types.ObjectId(item.educationSystemId),
-                educationLevelId: new mongoose.Types.ObjectId(item.educationLevelId),
-              },
-            },
-            { upsert: true, new: true },
-          );
+
+        if (examCount === 0) {
+          for (const item of INITIAL_EXAMINATIONS) {
+            const { id, createdAt: _c, updatedAt: _u, ...rest } = item;
+            void _c;
+            void _u;
+            try {
+              await ExamModel.findOneAndUpdate(
+                { _id: new mongoose.Types.ObjectId(id) },
+                {
+                  $setOnInsert: {
+                    ...rest,
+                    _id: new mongoose.Types.ObjectId(id),
+                    educationSystemId: new mongoose.Types.ObjectId(item.educationSystemId),
+                    educationLevelId: new mongoose.Types.ObjectId(item.educationLevelId),
+                  },
+                },
+                { upsert: true, new: true },
+              );
+            } catch (err) {
+              if (!isDuplicateKeyError(err)) throw err;
+            }
+          }
         }
-        for (const item of INITIAL_SUBJECTS) {
-          await SubjectModel.findOneAndUpdate(
-            { _id: new mongoose.Types.ObjectId(item.id) },
-            {
-              $setOnInsert: {
-                ...item,
-                _id: new mongoose.Types.ObjectId(item.id),
-                educationSystemId: new mongoose.Types.ObjectId(item.educationSystemId),
-                educationLevelId: new mongoose.Types.ObjectId(item.educationLevelId),
-                examinationIds: item.examinationIds.map((id) => new mongoose.Types.ObjectId(id)),
-              },
-            },
-            { upsert: true, new: true },
-          );
+
+        if (subCount === 0) {
+          for (const item of INITIAL_SUBJECTS) {
+            const { id, createdAt: _c, updatedAt: _u, ...rest } = item;
+            void _c;
+            void _u;
+            try {
+              await SubjectModel.findOneAndUpdate(
+                { _id: new mongoose.Types.ObjectId(id) },
+                {
+                  $setOnInsert: {
+                    ...rest,
+                    _id: new mongoose.Types.ObjectId(id),
+                    educationSystemId: new mongoose.Types.ObjectId(item.educationSystemId),
+                    educationLevelId: new mongoose.Types.ObjectId(item.educationLevelId),
+                    examinationIds: item.examinationIds.map((eid) => new mongoose.Types.ObjectId(eid)),
+                  },
+                },
+                { upsert: true, new: true },
+              );
+            } catch (err) {
+              if (!isDuplicateKeyError(err)) throw err;
+            }
+          }
         }
-        for (const item of INITIAL_CHAPTERS) {
-          await ChapterModel.findOneAndUpdate(
-            { _id: new mongoose.Types.ObjectId(item.id) },
-            {
-              $setOnInsert: {
-                ...item,
-                _id: new mongoose.Types.ObjectId(item.id),
-                subjectId: new mongoose.Types.ObjectId(item.subjectId),
-              },
-            },
-            { upsert: true, new: true },
-          );
+
+        if (chapCount === 0) {
+          for (const item of INITIAL_CHAPTERS) {
+            const { id, createdAt: _c, updatedAt: _u, ...rest } = item;
+            void _c;
+            void _u;
+            try {
+              await ChapterModel.findOneAndUpdate(
+                { _id: new mongoose.Types.ObjectId(id) },
+                {
+                  $setOnInsert: {
+                    ...rest,
+                    _id: new mongoose.Types.ObjectId(id),
+                    subjectId: new mongoose.Types.ObjectId(item.subjectId),
+                  },
+                },
+                { upsert: true, new: true },
+              );
+            } catch (err) {
+              if (!isDuplicateKeyError(err)) throw err;
+            }
+          }
         }
-        for (const item of INITIAL_TOPICS) {
-          await TopicModel.findOneAndUpdate(
-            { _id: new mongoose.Types.ObjectId(item.id) },
-            {
-              $setOnInsert: {
-                ...item,
-                _id: new mongoose.Types.ObjectId(item.id),
-                subjectId: new mongoose.Types.ObjectId(item.subjectId),
-                chapterId: new mongoose.Types.ObjectId(item.chapterId),
-                prerequisiteTopicIds: item.prerequisiteTopicIds.map(
-                  (id) => new mongoose.Types.ObjectId(id),
-                ),
-              },
-            },
-            { upsert: true, new: true },
-          );
+
+        if (topicCount === 0) {
+          for (const item of INITIAL_TOPICS) {
+            const { id, createdAt: _c, updatedAt: _u, ...rest } = item;
+            void _c;
+            void _u;
+            try {
+              await TopicModel.findOneAndUpdate(
+                { _id: new mongoose.Types.ObjectId(id) },
+                {
+                  $setOnInsert: {
+                    ...rest,
+                    _id: new mongoose.Types.ObjectId(id),
+                    subjectId: new mongoose.Types.ObjectId(item.subjectId),
+                    chapterId: new mongoose.Types.ObjectId(item.chapterId),
+                    prerequisiteTopicIds: item.prerequisiteTopicIds.map(
+                      (pid) => new mongoose.Types.ObjectId(pid),
+                    ),
+                  },
+                },
+                { upsert: true, new: true },
+              );
+            } catch (err) {
+              if (!isDuplicateKeyError(err)) throw err;
+            }
+          }
         }
       })().catch((err) => {
         mongoSeededPromise = null;

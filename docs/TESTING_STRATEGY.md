@@ -3,9 +3,8 @@
 ## 1. Testing Pyramid & Tools
 
 - **Static Verification**: TypeScript (`tsc --noEmit`) + ESLint.
-- **Unit Testing (`Vitest`)**: Fast, deterministic tests for pure domain logic, validators, and algorithms.
-- **Integration Testing (`Vitest`)**: Service and API Route Handler tests covering authentication, RBAC, ownership isolation, Mongoose repositories, and mocked/live OpenRouter responses.
-- **End-to-End Testing (`Playwright`)**: Browser verification of critical student and administrator workflows across desktop and mobile viewports.
+- **Unit & Integration Testing (`Vitest`)**: 12 modular test suites (`tests/state-01-*.test.ts` through `tests/state-12-qa-security.test.ts`, 47 tests total) covering domain validators, SM-2 scheduling, deterministic study planner allocation, quiz scoring & rubric grading, RAG sandboxing, error normalization, RBAC, ownership isolation, and cross-module journeys.
+- **End-to-End Testing (`Playwright`)**: Configured via `playwright.config.ts` and `tests/e2e/critical-journeys.spec.ts` (`npm run test:e2e`) across desktop Chrome and mobile Pixel 5 viewports.
 
 ## 2. Mandatory Unit Test Targets
 

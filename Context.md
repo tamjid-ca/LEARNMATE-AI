@@ -9,9 +9,9 @@ Deployment: Vercel
 
 ## Current State
 
-CURRENT_STATE: 11
+CURRENT_STATE: 12
 STATUS: COMPLETE
-LAST_COMPLETED_STATE: 11
+LAST_COMPLETED_STATE: 12
 
 ## Product Requirements
 
@@ -82,11 +82,18 @@ Decisions: docs/DECISIONS.md
   - Implemented `MongooseAnalyticsRepository` and `InMemoryAnalyticsRepository` (`src/modules/analytics/analytics-repository.ts`) persisting `progressRecords` and deduplicated `notifications` (`dedupeKey`).
   - Implemented `analytics-service.ts` (`src/modules/analytics/analytics-service.ts`) providing deterministic topic mastery estimates (`computeTopicMasteryEstimate` labeled explicitly as estimates per `FR-ANALYTICS-008`), consecutive-day streak calculation (`calculateLearningStreak`), anti-gaming study points & achievement milestones (`computeGamificationSummary` — `FR-GAME-001..004`), explainable adaptive recommendations with inspectable `evidenceBasis` (`FR-ANALYTICS-005..007`), and preference-aware notification syncing (`FR-NOTIFY-001..003`).
   - Built `/api/v1/analytics` and `/api/v1/notifications` Route Handlers, plus interactive Student Analytics (`/analytics`), Notifications & Preferences (`/notifications`), and live Student Dashboard (`/dashboard`) UI pages.
+- **State 12 — Complete Integration, QA and Security Hardening**:
+  - Hardened server error normalization (`src/lib/api/errors.ts`) to cleanly classify `ZodError` (`400`), malformed JSON (`400`), Mongoose `CastError`/`ValidationError` (`400`), duplicate keys (`409`), and database connectivity errors (`503 DATABASE_UNAVAILABLE` without leaking URIs), eliminating spurious `500 An unexpected server error occurred` messages on empty DBs or validation issues.
+  - Fixed idempotent partial seeding in `MongooseCurriculumRepository.ensureSeeded()` (`src/modules/curriculum/curriculum-repository.ts`) so empty/partial curriculum tiers populate cleanly without `11000` errors.
+  - Hardened OpenRouter compatibility (`src/lib/ai/openrouter-client.ts`) with automatic retry without `response_format` when free models return HTTP `400`/`422`, added `StructuredMaterialOutput` preprocessing (`src/lib/validators/ai.ts`) and Markdown-to-structured fallback + `customTopicTitle` support in `tutor-materials-service.ts`, plus `customSystemPrompt` and mid-chat `topicId`/`subjectId`/`chapterId` switching in Tutor conversations.
+  - Built XSS-safe rich `MarkdownRenderer` (`src/components/shared/markdown-renderer.tsx`), enforced `dangerouslySetInnerHTML`/`new Function` lint blocks (`scripts/lint.mjs`), and added rate limiting on AI tutor messages, material generation, and document uploads.
+  - Redesigned Student AI Subject Tutor (`/tutor`) into a ChatGPT/Gemini-style workspace with collapsible history, cascading Subject → Chapter → Topic curriculum context preview, customizable persona/system prompt presets, SSE streaming, and crisp Markdown responses; redesigned Study Materials (`/materials`) into a professional 12-format Generator Studio & Editorial Library Reader.
+  - Added `tests/state-12-qa-security.test.ts` (3 cross-module QA & security tests) and Playwright E2E configuration/spec (`playwright.config.ts`, `tests/e2e/critical-journeys.spec.ts`).
 
 ## Current Implementation
 
-- Completed State 11 (Analytics, Notifications and Gamification).
-- Ready to transition to State 12 (Complete Integration, QA and Security Hardening) upon user instruction.
+- Completed State 12 (Complete Integration, QA and Security Hardening).
+- Ready to transition to State 13 (Deployment and Production Readiness) upon user instruction.
 
 ## Technical Decisions
 
@@ -94,10 +101,11 @@ Decisions: docs/DECISIONS.md
 - **State 09 Grounded RAG & Prompt-Injection Defense Architecture**: Every retrieved document chunk is sanitized (`sanitizeUntrustedChunkText`) and wrapped inside `<untrusted_document_chunk index="N" page="P" section="S">` before interpolation into the `document_qa` prompt template, preventing untrusted PDF/DOCX/TXT passages from overriding system instructions. `getActiveRetrievalMode()` reports `'keyword'` unless both `OPENROUTER_EMBEDDING_MODEL` and `ATLAS_VECTOR_INDEX_NAME` are configured (`FR-DOC-011`).
 - **State 10 Deterministic Scheduling & Honest Syllabus Weighting (`FR-PLAN-011`)**: `scheduler-engine.ts` computes all calendar dates, daily minute capacities, and weekly milestones deterministically. Official syllabus priority scores are applied strictly when `topic.syllabusWeightVerified === true`; otherwise topics are ordered by topological prerequisites, verified quiz weak-topic diagnostics, due spaced-repetition flashcards, and student proficiency estimates.
 - **State 11 Explainable Mastery Estimates & Anti-Gaming Gamification (`FR-ANALYTICS-007..008`, `FR-GAME-004`)**: Topic mastery scores (`0..100`, bands `unstarted | weak | developing | strong`) are computed deterministically from verified quiz accuracy, flashcard reviews, and topic completions and explicitly presented as estimates. Every adaptive recommendation includes an inspectable `evidenceBasis` string, and study points are awarded strictly for verified learning milestones rather than repeated unverified actions.
+- **State 12 Error Normalization, Free-Model JSON Resilience & XSS-Safe Markdown (`NFR-SEC`, `NFR-REL`)**: `normalizeUnknownError` maps client/DB errors accurately (`400`/`409`/`503`) without leaking credentials or URIs; `defaultFetchOpenRouterTransport` retries without `response_format` when OpenRouter free models reject JSON-mode flags, and `MarkdownRenderer` renders structured Markdown/code/tables/math strictly as React nodes with zero `dangerouslySetInnerHTML`.
 
 ## Database Status
 
-- Completed collections: All 27 collections compiled into Mongoose models (`src/models/index.ts`) with active repositories across the entire schema (`users`, `educationSystems`, `educationLevels`, `examinations`, `subjects`, `chapters`, `topics`, `promptTemplates`, `aiUsageLogs`, `appSettings`, `auditLogs`, `conversations`, `messages`, `generatedContents`, `feedbackReports`, `quizzes`, `questions`, `quizAttempts`, `flashcardDecks`, `flashcards`, `reviewLogs`, `uploadedMaterials`, `documentChunks`, `studyPlans`, `studyTasks`, `progressRecords`, and `notifications`).
+- Completed collections: All 27 collections compiled into Mongoose models (`src/models/index.ts`) with active repositories across the entire schema (`conversations` extended with optional `customSystemPrompt`).
 - Pending collections: None (all 27 collections active).
 - Required indexes and migrations: All compound indexes registered in `SCHEMA_REGISTRY` and compiled onto Mongoose schemas.
 
@@ -115,21 +123,22 @@ Decisions: docs/DECISIONS.md
   - `npm run lint` (`node scripts/lint.mjs`)
   - `npm test` (`vitest run`)
   - `npm run build` (`next build`)
-- Passed tests: 44/44 unit & integration tests across `state-01-architecture.test.ts` (6), `state-02-scaffold.test.ts` (3), `state-03-auth-onboarding.test.ts` (6), `state-04-curriculum-cms.test.ts` (5), `state-05-ai-infrastructure.test.ts` (5), `state-06-tutor-materials.test.ts` (4), `state-07-quizzes-exams.test.ts` (3), `state-08-flashcards-sm2.test.ts` (3), `state-09-documents-rag.test.ts` (3), `state-10-study-planner.test.ts` (3), and `state-11-analytics-notifications.test.ts` (3); 0 lint or typecheck errors; production build succeeded across all routes.
+- Passed tests: 47/47 unit & integration tests across `state-01`..`state-12` (12 Vitest suites); 0 lint violations across 136 source files; 0 TypeScript errors; Playwright E2E spec authored in `tests/e2e/critical-journeys.spec.ts` (requires `@playwright/test` install & live server to run).
 - Failed tests: None.
 - Unresolved issues: None.
 
 ## Known Issues
 
-- None blocking State 12.
+- None blocking State 13.
 
 ## User Feedback
 
 - Add `.gitignore` according to the project structure.
 - Commit and push changes to GitHub (`origin main`) after finishing each state.
+- Upgrade AI Tutor UI to ChatGPT/Gemini style with rich Markdown visualization, working curriculum topic context & custom system prompt, clean DB/HTTP error handling, and overhaul Generate Study Materials UI & backend reliability.
 
 ## Next Action
 
-- Exact next implementation state: **State 12 — Complete Integration, QA and Security Hardening**.
-- First task to execute: Run comprehensive cross-module integration and security audit tests (RBAC, ownership isolation across all user collections, upload validation, prompt-injection defense, rate limiting, secret redaction), configure and verify Playwright E2E test suite, and validate full production build and responsive accessibility.
-- Relevant files to inspect: `Context.md`, `ANTIGRAVITY_MASTER_PROMPT.md` (State 12), `scripts/lint.mjs`, `tests/*.test.ts`.
+- Exact next implementation state: **State 13 — Deployment and Production Readiness**.
+- First task to execute: Verify Vercel configuration (`vercel.json`), MongoDB Atlas safe index & seed script (`scripts/seed.ts`), health/readiness endpoints, production environment checklist (`docs/DEPLOYMENT.md`), and preview/deployment readiness validation.
+- Relevant files to inspect: `Context.md`, `ANTIGRAVITY_MASTER_PROMPT.md` (State 13), `docs/DEPLOYMENT.md`, `src/app/api/v1/health/route.ts`.

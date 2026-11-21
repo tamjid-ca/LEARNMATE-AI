@@ -263,6 +263,7 @@ export const SCHEMA_REGISTRY: Record<CollectionName, CollectionBlueprint> = {
         enumValues: EXPLANATION_DEPTHS,
         defaultValue: 'intermediate',
       },
+      customSystemPrompt: { type: 'String' },
       messageCount: { type: 'Number', defaultValue: 0 },
       lastMessageAt: { type: 'Date' },
       isArchived: { type: 'Boolean', defaultValue: false },

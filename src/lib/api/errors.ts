@@ -14,6 +14,7 @@ export const ERROR_CODES = {
   AI_QUOTA_EXCEEDED: 'AI_QUOTA_EXCEEDED',
   AI_PROVIDER_UNAVAILABLE: 'AI_PROVIDER_UNAVAILABLE',
   AI_OUTPUT_INVALID: 'AI_OUTPUT_INVALID',
+  DATABASE_UNAVAILABLE: 'DATABASE_UNAVAILABLE',
   INTERNAL_ERROR: 'INTERNAL_ERROR',
 } as const;
 
@@ -69,6 +70,13 @@ export class AppError extends Error {
   ): AppError {
     return new AppError(ERROR_CODES.AI_PROVIDER_UNAVAILABLE, message, 503, details);
   }
+
+  static databaseUnavailable(
+    message = 'Database service is temporarily unavailable. Please verify connectivity and try again.',
+    details?: unknown,
+  ): AppError {
+    return new AppError(ERROR_CODES.DATABASE_UNAVAILABLE, message, 503, details);
+  }
 }
 
 export function normalizeUnknownError(err: unknown): {
@@ -85,6 +93,83 @@ export function normalizeUnknownError(err: unknown): {
       ...(err.details !== undefined ? { details: err.details } : {}),
     };
   }
+
+  // Handle malformed JSON request bodies
+  if (err instanceof SyntaxError && /json/i.test(err.message)) {
+    return {
+      statusCode: 400,
+      code: ERROR_CODES.VALIDATION_ERROR,
+      message: 'Invalid JSON request body',
+    };
+  }
+
+  if (err && typeof err === 'object') {
+    const errObj = err as {
+      name?: string;
+      message?: string;
+      code?: number | string;
+      issues?: Array<{ path?: Array<string | number>; message?: string }>;
+      flatten?: () => unknown;
+    };
+
+    // Zod validation errors
+    if (errObj.name === 'ZodError' && Array.isArray(errObj.issues)) {
+      const firstIssue = errObj.issues[0];
+      const fieldPath = firstIssue?.path?.join('.');
+      const summary = firstIssue?.message
+        ? fieldPath
+          ? `${fieldPath}: ${firstIssue.message}`
+          : firstIssue.message
+        : 'Request validation failed';
+      return {
+        statusCode: 400,
+        code: ERROR_CODES.VALIDATION_ERROR,
+        message: summary,
+        ...(typeof errObj.flatten === 'function' ? { details: errObj.flatten() } : {}),
+      };
+    }
+
+    // Mongoose cast, BSON, and schema validation errors
+    if (
+      errObj.name === 'CastError' ||
+      errObj.name === 'ValidationError' ||
+      errObj.name === 'BSONError'
+    ) {
+      return {
+        statusCode: 400,
+        code: ERROR_CODES.VALIDATION_ERROR,
+        message: 'Invalid identifier or field format',
+      };
+    }
+
+    // MongoDB duplicate key conflict
+    if (errObj.code === 11000) {
+      return {
+        statusCode: 409,
+        code: ERROR_CODES.CONFLICT,
+        message: 'A matching record already exists',
+      };
+    }
+
+    // MongoDB connection or configuration unavailability (never leak connection URIs)
+    const msg = errObj.message ?? '';
+    if (
+      errObj.name === 'MongoServerSelectionError' ||
+      errObj.name === 'MongooseServerSelectionError' ||
+      errObj.name === 'MongoNetworkError' ||
+      errObj.name === 'MongoTimeoutError' ||
+      /MONGODB_URI|ECONNREFUSED|ENOTFOUND|Server selection timed out|Client must be connected/i.test(
+        msg,
+      )
+    ) {
+      return {
+        statusCode: 503,
+        code: ERROR_CODES.DATABASE_UNAVAILABLE,
+        message: 'Database service is temporarily unavailable. Please check your database connection and try again.',
+      };
+    }
+  }
+
   return {
     statusCode: 500,
     code: ERROR_CODES.INTERNAL_ERROR,

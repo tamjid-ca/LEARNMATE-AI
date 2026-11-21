@@ -32,6 +32,7 @@ export const createConversationSchema = z
     uploadedMaterialId: z.string().trim().max(64).optional(),
     language: z.enum(LANGUAGES).default('en'),
     explanationDepth: z.enum(EXPLANATION_DEPTHS).default('intermediate'),
+    customSystemPrompt: z.string().trim().max(1500).optional(),
     initialMessage: z.string().trim().min(1).max(4000).optional(),
     responseStyle: z.enum(TUTOR_RESPONSE_STYLES).optional(),
   })
@@ -40,16 +41,24 @@ export const createConversationSchema = z
 export const updateConversationSchema = z
   .object({
     title: z.string().trim().min(2).max(160).optional(),
+    subjectId: z.string().trim().max(64).nullable().optional(),
+    chapterId: z.string().trim().max(64).nullable().optional(),
+    topicId: z.string().trim().max(64).nullable().optional(),
     language: z.enum(LANGUAGES).optional(),
     explanationDepth: z.enum(EXPLANATION_DEPTHS).optional(),
+    customSystemPrompt: z.string().trim().max(1500).nullable().optional(),
     isArchived: z.boolean().optional(),
   })
   .strict()
   .refine(
     (v) =>
       v.title !== undefined ||
+      v.subjectId !== undefined ||
+      v.chapterId !== undefined ||
+      v.topicId !== undefined ||
       v.language !== undefined ||
       v.explanationDepth !== undefined ||
+      v.customSystemPrompt !== undefined ||
       v.isArchived !== undefined,
     { message: 'At least one field must be provided to update a conversation' },
   );
@@ -57,8 +66,12 @@ export const updateConversationSchema = z
 export const sendTutorMessageSchema = z
   .object({
     content: z.string().trim().min(1, 'Message cannot be empty').max(4000),
+    subjectId: z.string().trim().max(64).nullable().optional(),
+    chapterId: z.string().trim().max(64).nullable().optional(),
+    topicId: z.string().trim().max(64).nullable().optional(),
     language: z.enum(LANGUAGES).optional(),
     explanationDepth: z.enum(EXPLANATION_DEPTHS).optional(),
+    customSystemPrompt: z.string().trim().max(1500).nullable().optional(),
     responseStyle: z.enum(TUTOR_RESPONSE_STYLES).default('explanation'),
     stream: z.boolean().default(false),
   })
@@ -75,7 +88,8 @@ export const generateMaterialSchema = z
   .object({
     subjectId: z.string().trim().max(64).optional(),
     chapterId: z.string().trim().max(64).optional(),
-    topicId: z.string().trim().min(1, 'topicId is required').max(64),
+    topicId: z.string().trim().max(64).optional(),
+    customTopicTitle: z.string().trim().min(2).max(200).optional(),
     uploadedMaterialId: z.string().trim().max(64).optional(),
     materialType: z.enum(MATERIAL_TYPES),
     language: z.enum(LANGUAGES).default('en'),
@@ -84,7 +98,10 @@ export const generateMaterialSchema = z
     saveToLibrary: z.boolean().default(true),
     regenerate: z.boolean().default(false),
   })
-  .strict();
+  .strict()
+  .refine((v) => Boolean(v.topicId?.trim() || v.customTopicTitle?.trim()), {
+    message: 'Either a syllabus topic or a custom topic title is required',
+  });
 
 export const updateMaterialSchema = z
   .object({

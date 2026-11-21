@@ -181,6 +181,7 @@ export async function createConversationForStudent(
     uploadedMaterialId: data.uploadedMaterialId,
     language: data.language,
     explanationDepth: data.explanationDepth,
+    customSystemPrompt: data.customSystemPrompt,
     messageCount: 0,
     lastMessageAt: new Date(),
     isArchived: false,
@@ -192,8 +193,12 @@ export async function createConversationForStudent(
       conversation.id,
       {
         content: data.initialMessage,
+        subjectId: context.subjectId,
+        chapterId: context.chapterId,
+        topicId: context.topicId,
         language: data.language,
         explanationDepth: data.explanationDepth,
+        customSystemPrompt: data.customSystemPrompt,
         responseStyle: data.responseStyle ?? 'explanation',
         stream: false,
       },
@@ -237,6 +242,7 @@ export async function updateConversationForStudent(
   conversationId: string,
   rawInput: unknown,
   repo: TutorMaterialsRepository = getActiveTutorMaterialsRepository(),
+  curriculumRepo: CurriculumRepository = getActiveCurriculumRepository(),
 ): Promise<{ conversation: ConversationRecord }> {
   const verified = requireAuth(actor);
   const existing = await repo.findConversationById(conversationId);
@@ -250,7 +256,39 @@ export async function updateConversationForStudent(
     throw AppError.validation('Invalid conversation update payload', parsed.error.flatten());
   }
 
-  const updated = await repo.updateConversation(conversationId, parsed.data);
+  const patch: Partial<Omit<ConversationRecord, 'id' | 'userId' | 'createdAt' | 'updatedAt'>> = {};
+  if (parsed.data.title !== undefined) patch.title = parsed.data.title;
+  if (parsed.data.language !== undefined) patch.language = parsed.data.language;
+  if (parsed.data.explanationDepth !== undefined) {
+    patch.explanationDepth = parsed.data.explanationDepth;
+  }
+  if (parsed.data.isArchived !== undefined) patch.isArchived = parsed.data.isArchived;
+
+  if (parsed.data.customSystemPrompt !== undefined) {
+    patch.customSystemPrompt = parsed.data.customSystemPrompt || undefined;
+  }
+
+  if (parsed.data.topicId !== undefined) {
+    if (parsed.data.topicId === null || parsed.data.topicId === '') {
+      patch.topicId = undefined;
+      patch.subjectId = parsed.data.subjectId ?? undefined;
+      patch.chapterId = parsed.data.chapterId ?? undefined;
+    } else {
+      const topic = await curriculumRepo.findTopicById(parsed.data.topicId);
+      patch.topicId = parsed.data.topicId;
+      patch.subjectId = topic?.subjectId ?? parsed.data.subjectId ?? existing.subjectId;
+      patch.chapterId = topic?.chapterId ?? parsed.data.chapterId ?? existing.chapterId;
+    }
+  } else {
+    if (parsed.data.subjectId !== undefined) {
+      patch.subjectId = parsed.data.subjectId || undefined;
+    }
+    if (parsed.data.chapterId !== undefined) {
+      patch.chapterId = parsed.data.chapterId || undefined;
+    }
+  }
+
+  const updated = await repo.updateConversation(conversationId, patch);
   if (!updated) {
     throw AppError.notFound('Conversation');
   }
@@ -302,6 +340,27 @@ export async function sendTutorMessageForStudent(
   const { content, responseStyle, stream } = parsed.data;
   const activeLanguage = parsed.data.language ?? conversation.language;
   const activeDepth = parsed.data.explanationDepth ?? conversation.explanationDepth;
+  const effectiveCustomPrompt =
+    parsed.data.customSystemPrompt !== undefined
+      ? (parsed.data.customSystemPrompt ?? undefined)
+      : conversation.customSystemPrompt;
+
+  const effectiveTopicId =
+    parsed.data.topicId !== undefined
+      ? (parsed.data.topicId || undefined)
+      : conversation.topicId;
+  const effectiveSubjectId =
+    parsed.data.subjectId !== undefined
+      ? (parsed.data.subjectId || undefined)
+      : parsed.data.topicId === null
+        ? undefined
+        : conversation.subjectId;
+  const effectiveChapterId =
+    parsed.data.chapterId !== undefined
+      ? (parsed.data.chapterId || undefined)
+      : parsed.data.topicId === null
+        ? undefined
+        : conversation.chapterId;
 
   const priorMessages = await repo.listMessagesByConversation(conversation.id, verified.userId);
   const historyWindow: OpenRouterMessage[] = priorMessages.slice(-8).map((m) => ({
@@ -311,9 +370,9 @@ export async function sendTutorMessageForStudent(
 
   const context = await resolveAcademicContext(
     {
-      subjectId: conversation.subjectId,
-      chapterId: conversation.chapterId,
-      topicId: conversation.topicId,
+      subjectId: effectiveSubjectId,
+      chapterId: effectiveChapterId,
+      topicId: effectiveTopicId,
     },
     curriculumRepo,
   );
@@ -337,6 +396,8 @@ export async function sendTutorMessageForStudent(
       depth: activeDepth,
       curriculumContext: context.curriculumContextText,
       topicTitle: context.topicTitle,
+      customInstructions:
+        effectiveCustomPrompt || 'Act as a patient, structured academic tutor.',
       userPrompt: `${styleDirective}\n\n${content}`,
     },
   };
@@ -368,8 +429,12 @@ export async function sendTutorMessageForStudent(
 
   const updatedConversation =
     (await repo.updateConversation(conversation.id, {
+      subjectId: context.subjectId,
+      chapterId: context.chapterId,
+      topicId: context.topicId,
       language: activeLanguage,
       explanationDepth: activeDepth,
+      customSystemPrompt: effectiveCustomPrompt,
       messageCount: priorMessages.length + 2,
       lastMessageAt: new Date(),
     })) ?? conversation;
@@ -475,6 +540,56 @@ function formatStructuredMaterialMarkdown(
   return blocks.join('\n');
 }
 
+export function parseMarkdownToStructuredMaterial(
+  rawMarkdown: string,
+  fallbackTitle: string,
+): {
+  title: string;
+  summary: string;
+  contentMarkdown: string;
+  keyTakeaways: string[];
+  formulasOrDefinitions: Array<{ term: string; detail: string }>;
+  practicePrompts: string[];
+} {
+  const cleaned = rawMarkdown
+    .replace(/^```(?:markdown|md)?\s*/i, '')
+    .replace(/```\s*$/i, '')
+    .trim();
+  const lines = cleaned.split('\n');
+  const h1Match = lines.find((l) => /^#\s+/.test(l.trim()));
+  const title = h1Match ? h1Match.replace(/^#\s+/, '').trim().slice(0, 240) : fallbackTitle;
+
+  const firstParagraph =
+    lines
+      .map((l) => l.trim())
+      .find((l) => l.length >= 12 && !l.startsWith('#') && !l.startsWith('```')) ??
+    cleaned;
+  const summary = firstParagraph.replace(/^>\s*/, '').replace(/\*\*/g, '').slice(0, 300);
+
+  const bulletLines = lines
+    .map((l) => l.trim())
+    .filter((l) => /^[-*•]\s+/.test(l))
+    .map((l) => l.replace(/^[-*•]\s+/, '').replace(/\*\*/g, '').trim())
+    .filter((l) => l.length >= 4);
+
+  const keyTakeaways =
+    bulletLines.slice(0, 6).length > 0
+      ? bulletLines.slice(0, 6)
+      : [`Core concepts and structured review for ${fallbackTitle}.`];
+
+  const bodyLines = h1Match ? lines.filter((l) => l !== h1Match) : lines;
+  const contentMarkdown = bodyLines.join('\n').trim() || cleaned;
+
+  return {
+    title: title.length >= 2 ? title : fallbackTitle,
+    summary: summary.length >= 5 ? summary : `Structured study material for ${fallbackTitle}.`,
+    contentMarkdown: contentMarkdown.length >= 10 ? contentMarkdown : cleaned,
+    keyTakeaways,
+    formulasOrDefinitions: [],
+    practicePrompts: [],
+  };
+}
+
 export async function generateLearningMaterialForStudent(
   actor: AuthenticatedActor | null | undefined,
   rawInput: unknown,
@@ -490,24 +605,39 @@ export async function generateLearningMaterialForStudent(
   }
 
   const data = parsed.data;
-  const topic = await curriculumRepo.findTopicById(data.topicId);
-  if (!topic) {
+  const topic = data.topicId ? await curriculumRepo.findTopicById(data.topicId) : null;
+  if (data.topicId && !topic && !data.customTopicTitle) {
     throw AppError.notFound('Topic');
   }
 
-  const context = await resolveAcademicContext(
-    {
-      subjectId: data.subjectId ?? topic.subjectId,
-      chapterId: data.chapterId ?? topic.chapterId,
-      topicId: topic.id,
-    },
-    curriculumRepo,
-  );
+  const context = topic
+    ? await resolveAcademicContext(
+        {
+          subjectId: data.subjectId ?? topic.subjectId,
+          chapterId: data.chapterId ?? topic.chapterId,
+          topicId: topic.id,
+        },
+        curriculumRepo,
+      )
+    : await resolveAcademicContext(
+        {
+          subjectId: data.subjectId,
+          chapterId: data.chapterId,
+        },
+        curriculumRepo,
+      );
+
+  const effectiveTopicTitle = data.customTopicTitle?.trim() || context.topicTitle;
+  const effectiveCurriculumContext = topic
+    ? context.curriculumContextText
+    : data.subjectId
+      ? context.curriculumContextText
+      : `Custom Study Topic: ${effectiveTopicTitle}`;
 
   const taskType = resolveTaskTypeForMaterial(data.materialType);
   const variables = {
-    topicTitle: context.topicTitle,
-    curriculumContext: context.curriculumContextText,
+    topicTitle: effectiveTopicTitle,
+    curriculumContext: effectiveCurriculumContext,
     materialType: data.materialType,
     language: data.language,
     depth: data.explanationDepth,
@@ -525,20 +655,79 @@ export async function generateLearningMaterialForStudent(
     }
   }
 
-  const aiGenerated = await executeStructuredAITask(
-    {
-      userId: verified.userId,
-      taskType,
-      schema: structuredMaterialOutputSchema,
-      variables,
-      cacheKey,
-      bypassCache: data.regenerate,
-    },
-    aiRepo,
-    transport,
-  );
+  let structuredData: {
+    title: string;
+    summary: string;
+    contentMarkdown: string;
+    keyTakeaways: string[];
+    formulasOrDefinitions: Array<{ term: string; detail: string }>;
+    practicePrompts: string[];
+  };
+  let usedModelId: string;
+  let wasCached = false;
 
-  const fullMarkdown = formatStructuredMaterialMarkdown(data.materialType, aiGenerated.data);
+  try {
+    const aiGenerated = await executeStructuredAITask(
+      {
+        userId: verified.userId,
+        taskType,
+        schema: structuredMaterialOutputSchema,
+        variables,
+        cacheKey,
+        bypassCache: data.regenerate,
+      },
+      aiRepo,
+      transport,
+    );
+    structuredData = {
+      ...aiGenerated.data,
+      formulasOrDefinitions: aiGenerated.data.formulasOrDefinitions ?? [],
+      practicePrompts: aiGenerated.data.practicePrompts ?? [],
+    };
+    usedModelId = aiGenerated.modelId;
+    wasCached = aiGenerated.cached;
+  } catch (err) {
+    const isValidationFailure =
+      err instanceof AppError &&
+      typeof err.details === 'object' &&
+      err.details !== null &&
+      (err.details as { status?: string }).status === 'validation_failed';
+
+    if (!isValidationFailure) {
+      throw err;
+    }
+
+    // Graceful Markdown fallback when an OpenRouter model emits Markdown instead of strict JSON
+    const catalogEntry = LEARNING_MATERIAL_CATALOG.find((m) => m.type === data.materialType);
+    const label = catalogEntry?.labelEn ?? data.materialType;
+    const markdownFallback = await executeAITask(
+      {
+        userId: verified.userId,
+        taskType: 'tutor',
+        bypassCache: data.regenerate,
+        variables: {
+          language: data.language,
+          depth: data.explanationDepth,
+          curriculumContext: effectiveCurriculumContext,
+          topicTitle: effectiveTopicTitle,
+          customInstructions: `Produce clean, well-structured Markdown study material (${label}). Do NOT return JSON.`,
+          userPrompt: `Create a comprehensive ${label} for "${effectiveTopicTitle}". ${
+            data.customInstructions || 'Include clear headings, summary points, key definitions/formulas, and 3 self-check questions.'
+          }`,
+        },
+      },
+      aiRepo,
+      transport,
+    );
+    structuredData = parseMarkdownToStructuredMaterial(
+      markdownFallback.content,
+      `${effectiveTopicTitle} — ${label}`,
+    );
+    usedModelId = markdownFallback.modelId;
+    wasCached = markdownFallback.cached;
+  }
+
+  const fullMarkdown = formatStructuredMaterialMarkdown(data.materialType, structuredData);
 
   const created = await repo.createMaterial({
     userId: verified.userId,
@@ -547,17 +736,17 @@ export async function generateLearningMaterialForStudent(
     topicId: context.topicId,
     uploadedMaterialId: data.uploadedMaterialId,
     materialType: data.materialType,
-    title: aiGenerated.data.title,
+    title: structuredData.title,
     contentMarkdown: fullMarkdown,
     structuredSections: {
-      summary: aiGenerated.data.summary,
-      keyTakeaways: aiGenerated.data.keyTakeaways,
-      formulasOrDefinitions: aiGenerated.data.formulasOrDefinitions ?? [],
-      practicePrompts: aiGenerated.data.practicePrompts ?? [],
+      summary: structuredData.summary,
+      keyTakeaways: structuredData.keyTakeaways,
+      formulasOrDefinitions: structuredData.formulasOrDefinitions,
+      practicePrompts: structuredData.practicePrompts,
     },
     language: data.language,
     explanationDepth: data.explanationDepth,
-    modelId: aiGenerated.modelId,
+    modelId: usedModelId,
     isSavedToLibrary: data.saveToLibrary,
     isPublishedByAdmin: false,
     isFlagged: false,
@@ -566,7 +755,7 @@ export async function generateLearningMaterialForStudent(
 
   return {
     material: created,
-    reusedCache: aiGenerated.cached,
+    reusedCache: wasCached,
   };
 }
 

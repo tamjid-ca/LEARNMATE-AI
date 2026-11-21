@@ -40,6 +40,7 @@ export function sanitizeProviderError(rawError: unknown): string {
   return msg
     .replace(/sk-or-v1-[a-zA-Z0-9_-]+/gi, '[REDACTED_OPENROUTER_KEY]')
     .replace(/Bearer\s+[a-zA-Z0-9._-]+/gi, 'Bearer [REDACTED]')
+    .replace(/mongodb(?:\+srv)?:\/\/[^\s'"]+/gi, '[REDACTED_MONGODB_URI]')
     .slice(0, 320);
 }
 
@@ -66,8 +67,8 @@ async function defaultFetchOpenRouterTransport(
   const timeoutMs = req.timeoutMs ?? 30_000;
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
-  try {
-    const response = await fetch(`${baseUrl}/chat/completions`, {
+  const executeHttpCall = async (includeJsonFormat: boolean): Promise<Response> => {
+    return fetch(`${baseUrl}/chat/completions`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -80,10 +81,19 @@ async function defaultFetchOpenRouterTransport(
         messages: req.messages,
         temperature: req.temperature ?? 0.3,
         max_tokens: req.maxTokens ?? 2000,
-        ...(req.responseFormatJson ? { response_format: { type: 'json_object' } } : {}),
+        ...(includeJsonFormat ? { response_format: { type: 'json_object' } } : {}),
       }),
       signal: controller.signal,
     });
+  };
+
+  try {
+    let response = await executeHttpCall(Boolean(req.responseFormatJson));
+
+    // Many free models routed via openrouter/free reject response_format: json_object with HTTP 400/422.
+    if (!response.ok && req.responseFormatJson && (response.status === 400 || response.status === 422)) {
+      response = await executeHttpCall(false);
+    }
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => '');

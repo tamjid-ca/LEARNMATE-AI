@@ -61,7 +61,92 @@ export const aiUsageLogQuerySchema = z.object({
 /**
  * Structured AI Output Schemas (Section 7.3)
  */
-export const structuredMaterialOutputSchema = z.object({
+function normalizeStructuredMaterialInput(raw: unknown): unknown {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return raw;
+  }
+  const obj = { ...(raw as Record<string, unknown>) };
+
+  // Support alternate content field names from varied OpenRouter models
+  if (!obj.contentMarkdown) {
+    const alt = obj.content ?? obj.markdown ?? obj.body ?? obj.notes;
+    if (typeof alt === 'string') {
+      obj.contentMarkdown = alt;
+    }
+  }
+
+  const contentText = typeof obj.contentMarkdown === 'string' ? obj.contentMarkdown.trim() : '';
+
+  // Ensure summary is present and clamped to 1200 characters
+  const rawSummary = typeof obj.summary === 'string' ? obj.summary.trim() : '';
+  if (rawSummary.length >= 5) {
+    obj.summary = rawSummary.slice(0, 1200);
+  } else if (contentText.length >= 5) {
+    const firstPlainLine =
+      contentText
+        .split('\n')
+        .map((l) => l.replace(/^#+\s*/, '').trim())
+        .find((l) => l.length >= 5) ?? contentText;
+    obj.summary = firstPlainLine.slice(0, 300);
+  }
+
+  // Normalize keyTakeaways array
+  if (Array.isArray(obj.keyTakeaways)) {
+    const cleaned = obj.keyTakeaways
+      .map((item) => (typeof item === 'string' ? item.trim() : String(item ?? '').trim()))
+      .filter((s) => s.length >= 2)
+      .slice(0, 15);
+    obj.keyTakeaways =
+      cleaned.length > 0 ? cleaned : ['Review the structured concepts and worked steps above.'];
+  } else if (obj.keyTakeaways === undefined) {
+    obj.keyTakeaways = ['Review the structured concepts and worked steps above.'];
+  }
+
+  // Normalize formulasOrDefinitions (handling string[] or object[])
+  if (Array.isArray(obj.formulasOrDefinitions)) {
+    obj.formulasOrDefinitions = obj.formulasOrDefinitions
+      .map((item) => {
+        if (typeof item === 'string') {
+          const sepMatch = item.match(/^([^:—-]+)[:—-]\s*(.+)$/);
+          if (sepMatch) {
+            return { term: sepMatch[1]!.trim(), detail: sepMatch[2]!.trim() };
+          }
+          return { term: 'Concept', detail: item.trim() };
+        }
+        return item;
+      })
+      .filter((item) => {
+        if (!item || typeof item !== 'object') return false;
+        const entry = item as { term?: unknown; detail?: unknown };
+        return (
+          typeof entry.term === 'string' &&
+          entry.term.trim().length >= 1 &&
+          typeof entry.detail === 'string' &&
+          entry.detail.trim().length >= 1
+        );
+      });
+  }
+
+  // Normalize practicePrompts
+  if (Array.isArray(obj.practicePrompts)) {
+    obj.practicePrompts = obj.practicePrompts
+      .map((item) => (typeof item === 'string' ? item.trim() : String(item ?? '').trim()))
+      .filter((s) => s.length >= 2);
+  }
+
+  return obj;
+}
+
+export interface StructuredMaterialOutput {
+  title: string;
+  summary: string;
+  contentMarkdown: string;
+  keyTakeaways: string[];
+  formulasOrDefinitions: Array<{ term: string; detail: string }>;
+  practicePrompts: string[];
+}
+
+const structuredMaterialOutputBaseSchema = z.object({
   title: z.string().trim().min(2).max(240),
   summary: z.string().trim().min(5).max(1200),
   contentMarkdown: z.string().trim().min(10),
@@ -76,6 +161,11 @@ export const structuredMaterialOutputSchema = z.object({
     .default([]),
   practicePrompts: z.array(z.string().trim().min(2)).default([]),
 });
+
+export const structuredMaterialOutputSchema = z.preprocess(
+  normalizeStructuredMaterialInput,
+  structuredMaterialOutputBaseSchema,
+) as unknown as z.ZodType<StructuredMaterialOutput>;
 
 export const structuredQuizQuestionSchema = z
   .object({
