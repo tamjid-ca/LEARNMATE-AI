@@ -1,144 +1,82 @@
-# LearnMate AI — Implementation Context
+# LearnMate AI — Remediation Context
 
-## Project
-
-Name: LearnMate AI
-Stack: Next.js + TypeScript + Node.js + MongoDB + Mongoose
-AI: OpenRouter
-Deployment: Vercel
-
-## Current State
-
-CURRENT_STATE: 12
+## Current Status
+CURRENT_PHASE: 00
 STATUS: COMPLETE
-LAST_COMPLETED_STATE: 12
 
-## Product Requirements
+> **Baseline Note:** Original SRS States 00–12 are COMPLETE at commit `d83eee5` (47/47 Vitest tests passing across 12 suites; typecheck, lint, and production build green). Original **State 13 (Deployment and Production Readiness)** will execute immediately after Remediation Phases `01`–`09` complete.
 
-Primary specification: docs/PROJECT_SRS.md
+## Permanent Specification
+- Requirements: [docs/PROJECT_SRS.md](docs/PROJECT_SRS.md)
+- Architecture & ADRs: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/DECISIONS.md](docs/DECISIONS.md)
 
-## Architecture
+## Remediation Audit
+[docs/REMEDIATION_AUDIT.md](docs/REMEDIATION_AUDIT.md)
 
-Architecture: docs/ARCHITECTURE.md
-Database: docs/DATABASE_SCHEMA.md
-API: docs/API_SPECIFICATION.md
-Decisions: docs/DECISIONS.md
+## Remediation Plan
+[docs/REMEDIATION_PLAN.md](docs/REMEDIATION_PLAN.md)
 
-## Completed
+## Current Issues
+1. **Custom Education Missing**: All 6 curriculum collections (`educationSystems`, `educationLevels`, `examinations`, `subjects`, `chapters`, `topics`) are global admin-only (`ownershipScope: 'curriculum_cms'`); no custom systems, custom label configs (`educationLabelConfigs`), flexible hierarchies, custom exams, or custom subjects exist.
+2. **Academic & Chapter Navigation Clutter**: `src/app/(student)/my-learning/page.tsx` shows a dense 6-column `<select>` filter grid without structured subject/chapter workspaces or mobile drawer navigation.
+3. **Notifications & Feedback Deficits**: `/notifications` lacks `read` filter, category grouping (quizzes, AI/document jobs, system), dismiss/delete, pagination, card timestamps, and compact Preferences drawer; app lacks global shadcn `Sonner` toast system (`sonner` not installed).
+4. **Fragmented AI Orchestration**: `ai-service.ts` lacks `AIHarnessManager`, capability-aware `ModelRouter`, `TaskRouter`, `ToolRegistry`, persisted `userHarnessSettings`, and durable MongoDB `aiJobs` worker (`src/lib/jobs/processor.ts` only has pure transition checks).
+5. **AI Tutor Lacks Web Research & AI Elements**: No web search adapter, SSRF-safe webpage fetcher, verifiable external citations, `Sources`/`InlineCitation`/`Tool` AI Elements components, or stop/regenerate controls.
+6. **Workflow Polish Gaps**: Study Materials (`/materials`), Flashcards (`/flashcards`), and Study Planner (`/planner`) need guided creation wizards, workspace organization tabs, 3D card flip/real review timer, and unified AI Harness integration.
+7. **Vercel-Incompatible RAG Pipeline**: `src/app/(student)/documents/page.tsx` runs `file.text()` on PDF/DOCX binaries and posts JSON to `/api/v1/documents` (corrupting binaries & hitting Vercel's 4.5 MB limit); `src/lib/storage/adapter.ts` has no `@vercel/blob` implementation; extraction uses naive regexes; jobs run inline synchronously; `.env.example` (`AI_EMBEDDING_MODEL`) and `rag-engine.ts` (`OPENROUTER_EMBEDDING_MODEL`) diverge; Atlas `$vectorSearch` query path missing.
 
-- **State 00 — Initial Environment and Agent Setup**:
-  - Workspace reconnaissance, `.agents/plugins/learnmate-engineering/` plugin (6 skills, 4 agents, 1 rule file), permanent docs, and `.env.example`.
-- **State 01 — Architecture and Database Design**:
-  - Created `.gitignore`, finalized domain types & enums (`src/types/domain.ts`), API error/response envelopes (`src/lib/api/errors.ts`, `src/lib/api/response.ts`), server-side RBAC & ownership guards (`src/lib/auth/rbac.ts`), OpenRouter task routing (`src/lib/ai/config.ts`), storage upload validator (`src/lib/storage/adapter.ts`), durable job transitions (`src/lib/jobs/processor.ts`), and 27-collection schema registry (`src/lib/database/schema-registry.ts`).
-- **State 02 — Project Scaffold and Design System**:
-  - Initialized Next.js 15 App Router, React 19, TypeScript, Tailwind CSS v4, Vitest, shadcn/ui primitives, bilingual (English / বাংলা) & dark/light theme provider, responsive collapsible Student (11 routes) & Admin (13 routes) shell, public landing page, and Mongoose runtime model factory.
-- **State 03 — Authentication and Student Onboarding**:
-  - Implemented `scrypt` cryptographic password hashing (`src/lib/auth/password.ts`), stateless HMAC-SHA256 session & action tokens (`src/lib/auth/session.ts`), endpoint rate limiting (`src/lib/security/rate-limit.ts`), and strict Zod schemas (`src/lib/validators/auth.ts`).
-  - Implemented `MongooseUserRepository` and `InMemoryUserRepository` (`src/modules/auth/user-repository.ts`) with cascading personal data deletion across 16 user-owned collections (`FR-AUTH-007`), and `auth-service.ts` (`src/modules/auth/auth-service.ts`).
-  - Built `/api/v1/auth/*` (`register`, `login`, `logout`, `me`, `verify-email`, `forgot-password`, `reset-password`), `/api/v1/users/profile` (`GET`, `PATCH`, `DELETE`), and `/api/v1/onboarding` (`GET`, `POST`).
-  - Implemented Next.js Web Crypto Edge middleware (`src/middleware.ts`) and route evaluator (`src/lib/auth/route-guard.ts`) protecting student, onboarding, and admin routes.
-  - Built interactive Login (`/login`), Registration (`/register`), Password Recovery (`/forgot-password`), Multi-Step Student Onboarding (`/onboarding`), and Profile & Privacy Settings (`/settings`) UI pages.
-- **State 04 — Curriculum and Administrative CMS**:
-  - Implemented strict Zod schemas (`src/lib/validators/curriculum.ts`) for all 6 hierarchy levels (`educationSystem`, `educationLevel`, `examination`, `subject`, `chapter`, `topic`), saved topic toggles, JSON/CSV import-export bundles, and admin user role/status updates.
-  - Created deterministic Bangladesh & International syllabus seed data (`src/modules/curriculum/seed-data.ts`) covering NCTB (`SSC`, `HSC`), Competitive (`UNIV_ADMISSION`, `BCS`), and Cambridge (`A_LEVEL`) systems, `HSC 2027` / `SSC 2027` / `BCS-47` examinations, bilingual subjects & chapters, and topics with learning objectives, key concepts, and prerequisite chains.
-  - Implemented `MongooseCurriculumRepository` and `InMemoryCurriculumRepository` (`src/modules/curriculum/curriculum-repository.ts`), plus `curriculum-service.ts` (`src/modules/curriculum/curriculum-service.ts`) enforcing referential integrity, database pagination, RBAC permissions, and `auditLogs` recording.
-  - Built `/api/v1/curriculum`, `/api/v1/topics`, `/api/v1/topics/[topicId]`, `/api/v1/topics/saved`, `/api/v1/admin/curriculum`, `/api/v1/admin/curriculum/import-export`, `/api/v1/admin/users`, Student Curriculum Explorer (`/my-learning`), and Admin CMS UI.
-- **State 05 — OpenRouter and Central AI Infrastructure**:
-  - Implemented structured AI output Zod schemas & JSON extractor (`src/lib/validators/ai.ts`) for materials, quizzes, short-answer evaluations, flashcards, study planner advice, recommendations, and admin AI config.
-  - Created authoritative versioned prompt templates (`src/lib/ai/prompt-templates.ts`) across all 9 `AITaskType` tasks (`tutor`, `explanation`, `summarization`, `quiz_generation`, `quiz_evaluation`, `flashcards`, `planner`, `document_qa`, `recommendations`) with variable interpolation and prompt-injection defense rules.
-  - Implemented `MongooseAIRepository` and `InMemoryAIRepository` (`src/modules/ai/ai-repository.ts`) persisting `promptTemplates`, `aiUsageLogs`, and `appSettings` (`ai_platform_config` & reusable response cache).
-  - Implemented centralized server-side OpenRouter gateway (`src/lib/ai/openrouter-client.ts`) and AI orchestration service (`src/modules/ai/ai-service.ts`) with timeouts, secret redaction (`sanitizeProviderError`), bounded schema-repair retries (`executeStructuredAITask`), fallback model routing, per-student daily request/token quotas, reusable response caching, and SSE streaming (`streamAITask`).
-  - Built `/api/v1/admin/ai/config`, `/api/v1/admin/ai/prompts`, and `/api/v1/admin/ai/usage` endpoints and live Admin AI Configuration, Prompt Template Editor, and Usage Telemetry consoles (`src/components/admin/admin-ai-console.tsx`).
-- **State 06 — AI Tutor and Learning Materials**:
-  - Implemented strict Zod schemas (`src/lib/validators/tutor-materials.ts`) and client-safe bilingual catalog (`src/config/learning-materials-catalog.ts`) covering all 12 `MaterialType` entries and 8 pedagogical tutor response styles.
-  - Implemented `MongooseTutorMaterialsRepository` and `InMemoryTutorMaterialsRepository` (`src/modules/tutor/tutor-materials-repository.ts`) persisting `conversations`, `messages`, `generatedContents`, and `feedbackReports`.
-  - Implemented `tutor-materials-service.ts` (`src/modules/tutor/tutor-materials-service.ts`) providing curriculum-contextual tutor conversations, multi-turn conversation history, SSE streaming, curriculum `sourceReferences` attachment (`FR-TUTOR-011`), message feedback & flagging (`FR-TUTOR-012`), 12-type structured learning material generation with personal library caching & regeneration (`FR-MAT-002`, `FR-MAT-006`), personal note editing/deletion (`FR-MAT-005`), strict user ownership isolation, and admin content moderation (`FR-ADMIN-005`).
-  - Built `/api/v1/tutor/conversations`, `/api/v1/tutor/conversations/[conversationId]`, `/api/v1/tutor/conversations/[conversationId]/messages`, `/api/v1/tutor/messages/[messageId]/feedback`, `/api/v1/materials`, `/api/v1/materials/[materialId]`, and `/api/v1/admin/content`.
-  - Built interactive Student AI Subject Tutor (`/tutor`) and 12-Type AI Learning Materials Generator & Personal Study Library (`/materials`) UI pages.
-- **State 07 — Quiz and Examination System**:
-  - Implemented strict Zod schemas (`src/lib/validators/quiz.ts`) for quiz/mock-exam generation across all 4 question types (`single_mcq`, `multiple_mcq`, `true_false`, `short_answer`), timed exams, negative marking, feedback timing (`after_submission`, `immediate`), and attempt submission.
-  - Implemented `MongooseQuizRepository` and `InMemoryQuizRepository` (`src/modules/quizzes/quiz-repository.ts`) persisting `quizzes`, `questions`, and `quizAttempts`.
-  - Implemented `quiz-service.ts` (`src/modules/quizzes/quiz-service.ts`) enforcing server-side answer-key stripping before submission (`sanitizeQuestionForDelivery`), deterministic objective question auto-scoring with negative marking (`FR-QUIZ-009`), AI rubric-grounded short-answer grading labeled `[AI-Assisted Rubric Evaluation]` (`FR-QUIZ-010`), weak-topic identification (`<60%` topic accuracy) with prerequisite & revision material recommendations (`FR-QUIZ-015`), and retry attempt creation (`FR-QUIZ-013`).
-  - Built `/api/v1/quizzes`, `/api/v1/quizzes/[quizId]`, `/api/v1/attempts`, and `/api/v1/attempts/[attemptId]` Route Handlers, plus the interactive Student Quiz & Mock Examination UI (`/quizzes`).
-- **State 08 — Flashcards and Spaced Repetition**:
-  - Implemented strict Zod schemas (`src/lib/validators/flashcards.ts`) for manual deck creation, AI flashcard generation (`FR-FLASH-001`), card CRUD (`FR-FLASH-003`, `FR-FLASH-005`), review queue filtering (`due`, `upcoming`, `mastered`, `difficult`, `all` — `FR-FLASH-009`), and SM-2 rating submissions (`again`, `hard`, `good`, `easy` — `FR-FLASH-007`).
-  - Implemented `MongooseFlashcardRepository` and `InMemoryFlashcardRepository` (`src/modules/flashcards/flashcard-repository.ts`) persisting `flashcardDecks`, `flashcards`, and `reviewLogs`.
-  - Implemented `flashcard-service.ts` (`src/modules/flashcards/flashcard-service.ts`) with the deterministic SM-2 scheduler (`computeNextSM2Schedule` — `FR-FLASH-006..008`, ADR-006), category breakdowns (`categorizeFlashcards`), AI deck generation from syllabus topics or saved study notes, card CRUD with deck count synchronization, and `reviewLogs` persistence (`FR-FLASH-010`).
-  - Built `/api/v1/flashcards`, `/api/v1/flashcards/[id]`, and `/api/v1/reviews` Route Handlers, plus the interactive Student Flip-Card & Spaced-Repetition UI (`/flashcards`).
-- **State 09 — Document Management and RAG**:
-  - Implemented strict Zod schemas (`src/lib/validators/documents.ts`) for PDF/TXT/DOCX upload payloads (`FR-DOC-002..003`), grounded Q&A (`FR-DOC-007`), and document-to-summary/notes/quiz/flashcards generation (`FR-DOC-008`).
-  - Implemented the RAG extraction, chunking, retrieval, and prompt-injection sandboxing engine (`src/modules/documents/rag-engine.ts`) with `<untrusted_document_chunk>` wrapping (`sanitizeUntrustedChunkText`, `formatSandboxedDocumentContext` — `FR-AI-008`), page & section citations (`FR-DOC-009`), and honest retrieval mode reporting (`getActiveRetrievalMode` — `FR-DOC-011`).
-  - Implemented `MongooseDocumentRepository` and `InMemoryDocumentRepository` (`src/modules/documents/document-repository.ts`) persisting `uploadedMaterials` and `documentChunks`.
-  - Implemented `document-service.ts` (`src/modules/documents/document-service.ts`) enforcing durable status transitions (`uploaded -> extracting -> chunking -> indexing -> ready`), strict user ownership isolation (`FR-DOC-011`), grounded Q&A, derivative generation (`summary`, `notes`, `quiz`, `flashcards`), and document deletion with chunk index cleanup (`FR-DOC-010`).
-  - Built `/api/v1/documents` and `/api/v1/documents/[documentId]` Route Handlers, plus the interactive Student Document & Grounded RAG Workspace UI (`/documents`).
-- **State 10 — Personalized Study Planner**:
-  - Implemented strict Zod schemas (`src/lib/validators/planner.ts`) for study plan creation, configuration updates, schedule recalculation (`action: 'recalculate'`), missed-task rescheduling (`action: 'reschedule_missed'`), and manual task CRUD (`FR-PLAN-001..008`).
-  - Implemented the deterministic preparation roadmap & scheduling engine (`src/modules/planner/scheduler-engine.ts`) allocating daily tasks (`learn_topic`, `revision`, `practice_quiz`, `flashcard_review`, `mock_exam`, `final_revision`) across available study days (`availableDaysOfWeek`) and `dailyStudyMinutes`, building weekly milestones, and enforcing `FR-PLAN-011` (never inventing official examination weightings when `syllabusWeightVerified` is false).
-  - Implemented `MongooseStudyPlanRepository` and `InMemoryStudyPlanRepository` (`src/modules/planner/planner-repository.ts`) persisting `studyPlans` and `studyTasks`.
-  - Implemented `planner-service.ts` (`src/modules/planner/planner-service.ts`) integrating verified student performance signals (`quizAttempts.weakTopicIds` and overdue/difficult `flashcards` — `FR-PLAN-009`, `FR-PLAN-010`) with AI advisor summaries (`executeStructuredAITask` for `taskType: 'planner'`).
-  - Built `/api/v1/study-plans`, `/api/v1/study-plans/[planId]`, and `/api/v1/study-tasks/[taskId]` Route Handlers, plus the interactive Student Study Planner UI (`/planner`) with List, Calendar, and Roadmap/Milestones views (`FR-PLAN-005`).
-- **State 11 — Analytics, Notifications and Gamification**:
-  - Implemented strict Zod schemas (`src/lib/validators/analytics-notifications.ts`) for topic progress logging, analytics queries, and notification actions (`mark_read`, `mark_all_read`, `update_preferences`).
-  - Implemented `MongooseAnalyticsRepository` and `InMemoryAnalyticsRepository` (`src/modules/analytics/analytics-repository.ts`) persisting `progressRecords` and deduplicated `notifications` (`dedupeKey`).
-  - Implemented `analytics-service.ts` (`src/modules/analytics/analytics-service.ts`) providing deterministic topic mastery estimates (`computeTopicMasteryEstimate` labeled explicitly as estimates per `FR-ANALYTICS-008`), consecutive-day streak calculation (`calculateLearningStreak`), anti-gaming study points & achievement milestones (`computeGamificationSummary` — `FR-GAME-001..004`), explainable adaptive recommendations with inspectable `evidenceBasis` (`FR-ANALYTICS-005..007`), and preference-aware notification syncing (`FR-NOTIFY-001..003`).
-  - Built `/api/v1/analytics` and `/api/v1/notifications` Route Handlers, plus interactive Student Analytics (`/analytics`), Notifications & Preferences (`/notifications`), and live Student Dashboard (`/dashboard`) UI pages.
-- **State 12 — Complete Integration, QA and Security Hardening**:
-  - Hardened server error normalization (`src/lib/api/errors.ts`) to cleanly classify `ZodError` (`400`), malformed JSON (`400`), Mongoose `CastError`/`ValidationError` (`400`), duplicate keys (`409`), and database connectivity errors (`503 DATABASE_UNAVAILABLE` without leaking URIs), eliminating spurious `500 An unexpected server error occurred` messages on empty DBs or validation issues.
-  - Fixed idempotent partial seeding in `MongooseCurriculumRepository.ensureSeeded()` (`src/modules/curriculum/curriculum-repository.ts`) so empty/partial curriculum tiers populate cleanly without `11000` errors.
-  - Hardened OpenRouter compatibility (`src/lib/ai/openrouter-client.ts`) with automatic retry without `response_format` when free models return HTTP `400`/`422`, added `StructuredMaterialOutput` preprocessing (`src/lib/validators/ai.ts`) and Markdown-to-structured fallback + `customTopicTitle` support in `tutor-materials-service.ts`, plus `customSystemPrompt` and mid-chat `topicId`/`subjectId`/`chapterId` switching in Tutor conversations.
-  - Built XSS-safe rich `MarkdownRenderer` (`src/components/shared/markdown-renderer.tsx`), enforced `dangerouslySetInnerHTML`/`new Function` lint blocks (`scripts/lint.mjs`), and added rate limiting on AI tutor messages, material generation, and document uploads.
-  - Redesigned Student AI Subject Tutor (`/tutor`) into a ChatGPT/Gemini-style workspace with collapsible history, cascading Subject → Chapter → Topic curriculum context preview, customizable persona/system prompt presets, SSE streaming, and crisp Markdown responses; redesigned Study Materials (`/materials`) into a professional 12-format Generator Studio & Editorial Library Reader.
-  - Added `tests/state-12-qa-security.test.ts` (3 cross-module QA & security tests) and Playwright E2E configuration/spec (`playwright.config.ts`, `tests/e2e/critical-journeys.spec.ts`).
+## Completed Phases
+- **Original SRS States 00–12 (COMPLETE — commit `d83eee5`)**: Next.js 15 App Router scaffold, 27 compiled Mongoose collections, Auth/RBAC, Global Curriculum CMS seeding, OpenRouter gateway, Tutor & Materials UI overhaul, Quizzes, SM-2 Flashcards, Documents/RAG baseline, Deterministic Study Planner, Analytics/Notifications/Gamification, and error-handling hardening.
+- **Phase 00 — Existing Project Audit and Remediation Planning (COMPLETE)**: Inspected repository, schemas, APIs, UI primitives, OpenRouter gateway, RAG pipeline, and Vercel constraints; researched official shadcn AI Elements, Sonner, web search security, and Vercel Blob/serverless constraints; authored `docs/REMEDIATION_AUDIT.md`, `docs/REMEDIATION_PLAN.md`, and updated `Context.md`.
 
-## Current Implementation
+## Current Phase
+- **Objective**: Phase 00 audit & planning completed with zero regressions to existing codebase.
+- **Files Created/Updated**: `docs/REMEDIATION_AUDIT.md`, `docs/REMEDIATION_PLAN.md`, `Context.md`.
+- **Progress**: Ready to start Phase 01 on next user `Continue from Context.md`.
 
-- Completed State 12 (Complete Integration, QA and Security Hardening).
-- Ready to transition to State 13 (Deployment and Production Readiness) upon user instruction.
+## Education Architecture
+- **Current Schemas**: Global 6-tier `educationSystems` → `educationLevels` → `examinations` → `subjects` → `chapters` → `topics` in `src/lib/database/schema-registry.ts`.
+- **Custom Education Support**: Not yet implemented (target of Phase 01: `scope: 'global' | 'custom'`, `ownerUserId`, `educationLabelConfigs`, `hierarchyLevels`, custom exam/subject metadata).
+- **Migration Status**: Pending Phase 01 idempotent backfill script (`scripts/migrate-custom-education.ts`).
 
-## Technical Decisions
+## AI Harness
+- **Orchestrator Status**: Baseline `src/modules/ai/ai-service.ts` active (`executeAITask`, `executeStructuredAITask`, `streamAITask`); centralized `AIHarnessManager` scheduled for Phase 03.
+- **Worker Status**: State transition helper only (`src/lib/jobs/processor.ts`); durable MongoDB `aiJobs` queue scheduled for Phase 03.
+- **Task Profiles / Tool Registry**: Pending Phase 03 (`AI_TASK_REGISTRY` in `src/lib/ai/config.ts` covers model env overrides only).
+- **Model Configuration**: `OPENROUTER_API_KEY` active in `.env.local`, default `openrouter/free`.
+- **Search Provider Status**: Not yet implemented (Phase 04).
 
-- **ADR-001..007**: Modular monolith on Next.js App Router, `npm`, 27 normalized Mongoose collections, OpenRouter gateway, hybrid RAG, deterministic SM-2/scheduler, pluggable storage.
-- **State 09 Grounded RAG & Prompt-Injection Defense Architecture**: Every retrieved document chunk is sanitized (`sanitizeUntrustedChunkText`) and wrapped inside `<untrusted_document_chunk index="N" page="P" section="S">` before interpolation into the `document_qa` prompt template, preventing untrusted PDF/DOCX/TXT passages from overriding system instructions. `getActiveRetrievalMode()` reports `'keyword'` unless both `OPENROUTER_EMBEDDING_MODEL` and `ATLAS_VECTOR_INDEX_NAME` are configured (`FR-DOC-011`).
-- **State 10 Deterministic Scheduling & Honest Syllabus Weighting (`FR-PLAN-011`)**: `scheduler-engine.ts` computes all calendar dates, daily minute capacities, and weekly milestones deterministically. Official syllabus priority scores are applied strictly when `topic.syllabusWeightVerified === true`; otherwise topics are ordered by topological prerequisites, verified quiz weak-topic diagnostics, due spaced-repetition flashcards, and student proficiency estimates.
-- **State 11 Explainable Mastery Estimates & Anti-Gaming Gamification (`FR-ANALYTICS-007..008`, `FR-GAME-004`)**: Topic mastery scores (`0..100`, bands `unstarted | weak | developing | strong`) are computed deterministically from verified quiz accuracy, flashcard reviews, and topic completions and explicitly presented as estimates. Every adaptive recommendation includes an inspectable `evidenceBasis` string, and study points are awarded strictly for verified learning milestones rather than repeated unverified actions.
-- **State 12 Error Normalization, Free-Model JSON Resilience & XSS-Safe Markdown (`NFR-SEC`, `NFR-REL`)**: `normalizeUnknownError` maps client/DB errors accurately (`400`/`409`/`503`) without leaking credentials or URIs; `defaultFetchOpenRouterTransport` retries without `response_format` when OpenRouter free models reject JSON-mode flags, and `MarkdownRenderer` renders structured Markdown/code/tables/math strictly as React nodes with zero `dangerouslySetInnerHTML`.
+## RAG
+- **Storage Provider**: Interface/validator only (`src/lib/storage/adapter.ts`); `BLOB_READ_WRITE_TOKEN` not yet configured; `@vercel/blob` not installed (Phase 08).
+- **Extraction Status**: Broken client `file.text()` + naive regex fallback in `rag-engine.ts` (Phase 08 binary extraction rework needed).
+- **Embedding Provider / Retrieval Strategy**: Unconfigured (`keyword` fallback active cleanly; `$vectorSearch` + env mismatch fix scheduled for Phase 08).
+- **Worker/Queue & Deployment Verification**: Inline synchronous currently; durable `aiJobs` worker + Vercel Preview test scheduled for Phase 08.
 
-## Database Status
+## UI/UX
+- **Installed shadcn/ui Primitives (8)**: `badge`, `button`, `card`, `input`, `separator`, `skeleton`, `tabs`, `tooltip`.
+- **Missing Primitives**: `sonner`, `alert`, `alert-dialog`, `dialog`, `sheet`, `select`, `switch`, `progress`, `dropdown-menu`, `hover-card`, `collapsible`, `scroll-area`, `textarea`, `label`, `checkbox`, `slider` (scheduled for Phase 02).
+- **AI Elements (`src/components/ai-elements/`)**: None yet (scheduled for Phase 04).
 
-- Completed collections: All 27 collections compiled into Mongoose models (`src/models/index.ts`) with active repositories across the entire schema (`conversations` extended with optional `customSystemPrompt`).
-- Pending collections: None (all 27 collections active).
-- Required indexes and migrations: All compound indexes registered in `SCHEMA_REGISTRY` and compiled onto Mongoose schemas.
+## Testing
+- **Commands Executed (Phase 00 Verification)**: `npm run typecheck && npm run lint && npm test`
+- **Passed**: TypeScript `0` errors; Lint `0` violations; Vitest `47/47` passing across 12 test suites (`state-01`..`state-12`).
+- **Failed**: None.
+- **Outstanding Tests**: `phase-01`..`phase-09` test suites and live Playwright E2E + Vercel Preview RAG tests (to be executed per phase).
 
-## Integrations
-
-- MongoDB: CONFIGURED (`.env.local` `MONGODB_URI` present; active repositories for all 27 collections)
-- OpenRouter: CONFIGURED (`.env.local` `OPENROUTER_API_KEY` present; centralized gateway active in `src/lib/ai/openrouter-client.ts` & `src/modules/ai/ai-service.ts`)
-- Storage: NOT_CONFIGURED (`BLOB_READ_WRITE_TOKEN` empty; local disk metadata adapter used in dev)
-- Vercel: NOT_CONFIGURED
-
-## Tests
-
-- Commands executed:
-  - `npm run typecheck` (`tsc --noEmit`)
-  - `npm run lint` (`node scripts/lint.mjs`)
-  - `npm test` (`vitest run`)
-  - `npm run build` (`next build`)
-- Passed tests: 47/47 unit & integration tests across `state-01`..`state-12` (12 Vitest suites); 0 lint violations across 136 source files; 0 TypeScript errors; Playwright E2E spec authored in `tests/e2e/critical-journeys.spec.ts` (requires `@playwright/test` install & live server to run).
-- Failed tests: None.
-- Unresolved issues: None.
-
-## Known Issues
-
-- None blocking State 13.
+## Blockers
+- None blocking **Phase 01**, **Phase 02**, or **Phase 03**.
+- Future external config needed ahead of later phases: Web Search API key (`TAVILY_API_KEY` or `BRAVE_SEARCH_API_KEY`) before Phase 04 live verification; Vercel Blob token (`BLOB_READ_WRITE_TOKEN`) & Vercel preview environment before Phase 08 production verification.
 
 ## User Feedback
-
-- Add `.gitignore` according to the project structure.
-- Commit and push changes to GitHub (`origin main`) after finishing each state.
-- Upgrade AI Tutor UI to ChatGPT/Gemini style with rich Markdown visualization, working curriculum topic context & custom system prompt, clean DB/HTTP error handling, and overhaul Generate Study Materials UI & backend reliability.
+- Keep `.gitignore` accurate, commit and push changes to GitHub (`origin main`) at the end of every completed state/phase.
+- Do not rebuild from scratch; preserve working functionality, existing data, and passing tests.
+- Complete **one phase per user invocation** (`Continue from Context.md`) and stop after the report.
 
 ## Next Action
-
-- Exact next implementation state: **State 13 — Deployment and Production Readiness**.
-- First task to execute: Verify Vercel configuration (`vercel.json`), MongoDB Atlas safe index & seed script (`scripts/seed.ts`), health/readiness endpoints, production environment checklist (`docs/DEPLOYMENT.md`), and preview/deployment readiness validation.
-- Relevant files to inspect: `Context.md`, `ANTIGRAVITY_MASTER_PROMPT.md` (State 13), `docs/DEPLOYMENT.md`, `src/app/api/v1/health/route.ts`.
+- **Exact Next Phase**: **Phase 01 — Custom Education System and Data Architecture**.
+- **First Tasks**:
+  1. Inspect existing curriculum records in MongoDB (if accessible) and finalize additive schemas in `src/types/domain.ts` & `src/lib/database/schema-registry.ts` (`scope`, `ownerUserId`, `isArchived`, `educationLabelConfigs`, `hierarchyLevels`, custom exam/subject fields, safe compound indexes).
+  2. Write idempotent migration/backfill script `scripts/migrate-custom-education.ts`.
+  3. Build custom education Zod validators, repository extensions, `custom-education-service.ts`, and `/api/v1/education/*` CRUD + onboarding/curriculum integration endpoints with strict ownership guards.
+  4. Build Custom Education & Label customization UI + unit/integration test suite `tests/phase-01-custom-education.test.ts`.
+- **Key Files to Inspect First**: `Context.md`, `docs/REMEDIATION_PLAN.md`, `src/lib/database/schema-registry.ts`, `src/modules/curriculum/curriculum-repository.ts`, `src/modules/curriculum/curriculum-service.ts`, `src/lib/validators/curriculum.ts`.
