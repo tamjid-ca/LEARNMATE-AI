@@ -21,6 +21,15 @@ import {
   verifyEmailSchema,
 } from '../../lib/validators/auth.ts';
 import {
+  getActiveCurriculumRepository,
+  type CurriculumRepository,
+} from '../curriculum/curriculum-repository.ts';
+import {
+  createCustomEducationSystemForStudent,
+  createCustomExaminationForStudent,
+  createCustomSubjectForStudent,
+} from '../curriculum/custom-education-service.ts';
+import {
   getActiveUserRepository,
   toPublicUserProfile,
   type PublicUserProfile,
@@ -142,6 +151,7 @@ export async function completeOnboardingWorkflow(
   actor: AuthenticatedActor | null | undefined,
   rawInput: unknown,
   repo: UserRepository = getActiveUserRepository(),
+  curriculumRepo?: CurriculumRepository,
 ): Promise<{ user: PublicUserProfile; sessionToken: string }> {
   const verified = requireAuth(actor);
   const parsed = onboardingSchema.safeParse(rawInput);
@@ -150,16 +160,130 @@ export async function completeOnboardingWorkflow(
   }
 
   const data = parsed.data;
+  const activeCurriculumRepo = curriculumRepo ?? getActiveCurriculumRepository();
+  let resolvedSystemId = data.educationSystemId;
+  let resolvedSystemCode = data.educationSystemCode;
+  let resolvedExamId = data.targetExaminationId;
+  const resolvedSubjectIds: string[] = [];
+
+  try {
+    if (data.educationMode === 'custom' && data.customSystem) {
+      const createdSys = await createCustomEducationSystemForStudent(
+        verified,
+        {
+          name: data.customSystem.name,
+          description: data.customSystem.description,
+          country: data.country,
+          educationType: data.customSystem.educationType,
+          preferredLanguage: data.preferredLanguage,
+          academicYear: data.customSystem.academicYear,
+          hierarchyPreset:
+            data.customSystem.hierarchyPreset &&
+            (data.customSystem.hierarchyPreset as string) !== 'custom'
+              ? data.customSystem.hierarchyPreset
+              : 'default',
+          setAsActive: false,
+        },
+        activeCurriculumRepo,
+        repo,
+      );
+      resolvedSystemId = createdSys.system.id;
+      resolvedSystemCode = createdSys.system.code;
+
+      if (data.targetExaminationCode?.trim()) {
+        const createdExam = await createCustomExaminationForStudent(
+          verified,
+          {
+            educationSystemId: createdSys.system.id,
+            name: data.targetExaminationCode.trim(),
+            academicSession: data.customSystem.academicYear,
+          },
+          activeCurriculumRepo,
+        );
+        resolvedExamId = createdExam.examination.id;
+      }
+
+      for (const subjectName of data.selectedSubjects) {
+        const createdSubj = await createCustomSubjectForStudent(
+          verified,
+          {
+            educationSystemId: createdSys.system.id,
+            examinationIds: resolvedExamId ? [resolvedExamId] : [],
+            name: subjectName,
+          },
+          activeCurriculumRepo,
+          repo,
+        );
+        resolvedSubjectIds.push(createdSubj.subject.id);
+      }
+    } else {
+      const visibility = { viewerUserId: verified.userId, scopeFilter: 'all' as const };
+      const [systems, exams, subjects] = await Promise.all([
+        activeCurriculumRepo.listEducationSystems(false, undefined, visibility),
+        activeCurriculumRepo.listExaminations(visibility),
+        activeCurriculumRepo.listSubjects(visibility),
+      ]);
+
+      const matchedSys =
+        (resolvedSystemId ? systems.find((s) => s.id === resolvedSystemId) : undefined) ??
+        systems.find((s) => s.code === data.educationSystemCode);
+      if (matchedSys) {
+        resolvedSystemId = matchedSys.id;
+      }
+
+      const matchedExam =
+        (resolvedExamId ? exams.find((e) => e.id === resolvedExamId) : undefined) ??
+        (data.targetExaminationCode
+          ? exams.find(
+              (e) =>
+                e.code.toLowerCase() === data.targetExaminationCode!.toLowerCase() ||
+                e.name.toLowerCase() === data.targetExaminationCode!.toLowerCase(),
+            )
+          : undefined);
+      if (matchedExam) {
+        resolvedExamId = matchedExam.id;
+      }
+
+      const fallbackSystemId = resolvedSystemId ?? systems[0]?.id;
+      for (const subjName of data.selectedSubjects) {
+        const matchedSubj = subjects.find(
+          (s) =>
+            s.name.toLowerCase() === subjName.toLowerCase() ||
+            subjName.toLowerCase().includes(s.name.toLowerCase()),
+        );
+        if (matchedSubj) {
+          resolvedSubjectIds.push(matchedSubj.id);
+        } else if (fallbackSystemId) {
+          const customSubj = await createCustomSubjectForStudent(
+            verified,
+            {
+              educationSystemId: fallbackSystemId,
+              name: subjName,
+            },
+            activeCurriculumRepo,
+            repo,
+          );
+          resolvedSubjectIds.push(customSubj.subject.id);
+        }
+      }
+    }
+  } catch {
+    // Keep onboarding resilient even if optional curriculum DB seeding is unavailable in isolated unit tests
+  }
+
   const updated = await repo.updateById(verified.userId, {
     country: data.country,
     preferredLanguage: data.preferredLanguage,
     dailyStudyMinutes: data.dailyStudyMinutes,
     learningPreferences: data.learningPreferences,
     timezone: data.timezone,
+    ...(resolvedSystemId ? { educationSystemId: resolvedSystemId } : {}),
+    ...(resolvedExamId ? { targetExaminationId: resolvedExamId } : {}),
+    ...(resolvedSubjectIds.length > 0 ? { selectedSubjectIds: resolvedSubjectIds } : {}),
     ...(data.institution !== undefined ? { institution: data.institution } : {}),
     onboardingCompleted: true,
     onboardingMeta: {
-      educationSystemCode: data.educationSystemCode,
+      educationSystemCode: resolvedSystemCode,
       educationLevelCode: data.educationLevelCode,
       targetExaminationCode: data.targetExaminationCode,
       selectedSubjects: data.selectedSubjects,

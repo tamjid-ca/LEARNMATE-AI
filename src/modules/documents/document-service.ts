@@ -51,6 +51,11 @@ import {
   type TutorMaterialsRepository,
 } from '../tutor/tutor-materials-repository.ts';
 import {
+  getActiveCurriculumRepository,
+  type CurriculumRepository,
+} from '../curriculum/curriculum-repository.ts';
+import { assertCurriculumRecordReadable } from '../curriculum/custom-education-service.ts';
+import {
   getActiveDocumentRepository,
   type DocumentChunkRecord,
   type DocumentRepository,
@@ -84,6 +89,7 @@ export async function uploadAndProcessDocumentForStudent(
   actor: AuthenticatedActor | null | undefined,
   rawInput: unknown,
   docRepo: DocumentRepository = getActiveDocumentRepository(),
+  curriculumRepo: CurriculumRepository = getActiveCurriculumRepository(),
 ): Promise<{
   document: UploadedMaterialRecord;
   chunks: DocumentChunkRecord[];
@@ -96,6 +102,18 @@ export async function uploadAndProcessDocumentForStudent(
   }
 
   const data = parsed.data;
+  if (data.subjectId) {
+    const subj = await curriculumRepo.findSubjectById(data.subjectId);
+    if (subj) assertCurriculumRecordReadable(subj, verified, 'Subject');
+  }
+  if (data.chapterId) {
+    const chap = await curriculumRepo.findChapterById(data.chapterId);
+    if (chap) assertCurriculumRecordReadable(chap, verified, 'Chapter');
+  }
+  if (data.topicId) {
+    const top = await curriculumRepo.findTopicById(data.topicId);
+    if (top) assertCurriculumRecordReadable(top, verified, 'Topic');
+  }
   const format = validateUploadDescriptor({
     originalFilename: data.originalFilename,
     mimeType: data.mimeType,

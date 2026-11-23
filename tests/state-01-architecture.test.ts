@@ -22,10 +22,11 @@ import {
 import { MAX_UPLOAD_BYTES, validateUploadDescriptor } from '../src/lib/storage/adapter.ts';
 import { canTransitionDocumentStatus } from '../src/lib/jobs/processor.ts';
 
-test('SRS Section 6.1: All 27 collections are registered with valid references and indexes', () => {
-  assert.equal(COLLECTION_NAMES.length, 27);
+test('SRS Section 6.1: All 27 baseline SRS collections + Phase 01 label config are registered with valid references and indexes', () => {
+  assert.ok(COLLECTION_NAMES.length >= 27);
+  assert.ok(COLLECTION_NAMES.includes('educationLabelConfigs'));
   const specs = getAllCompiledModelSpecs();
-  assert.equal(specs.length, 27);
+  assert.equal(specs.length, COLLECTION_NAMES.length);
 
   const validCollectionSet = new Set<string>(COLLECTION_NAMES);
 

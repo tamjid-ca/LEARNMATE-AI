@@ -38,6 +38,7 @@ import {
   type CurriculumRepository,
   getActiveCurriculumRepository,
 } from '../curriculum/curriculum-repository.ts';
+import { assertCurriculumRecordReadable } from '../curriculum/custom-education-service.ts';
 import type {
   ChapterRecord,
   SubjectRecord,
@@ -129,13 +130,18 @@ function calculateCompletionPercent(tasks: StudyTaskRecord[]): number {
 async function loadSyllabusForSubjects(
   curriculumRepo: CurriculumRepository,
   subjectIds: string[],
+  viewerUserId?: string,
 ): Promise<{
   subjects: SubjectRecord[];
   chapters: ChapterRecord[];
   topics: TopicRecord[];
 }> {
   const uniqueIds = Array.from(new Set(subjectIds));
-  const allSubjects = await curriculumRepo.listSubjects({ includeInactive: false });
+  const allSubjects = await curriculumRepo.listSubjects({
+    includeInactive: false,
+    viewerUserId,
+    scopeFilter: 'all',
+  });
   const selectedSubjects = allSubjects.filter((s) => uniqueIds.includes(s.id));
 
   if (selectedSubjects.length === 0) {
@@ -147,7 +153,9 @@ async function loadSyllabusForSubjects(
   }
 
   const chaptersNested = await Promise.all(
-    selectedSubjects.map((s) => curriculumRepo.listChapters(s.id, false)),
+    selectedSubjects.map((s) =>
+      curriculumRepo.listChapters(s.id, false, { viewerUserId, scopeFilter: 'all' }),
+    ),
   );
   const chapters = chaptersNested.flat().sort((a, b) => a.order - b.order);
 
@@ -156,6 +164,8 @@ async function loadSyllabusForSubjects(
       curriculumRepo.listTopics({
         subjectId: s.id,
         includeInactive: false,
+        viewerUserId,
+        scopeFilter: 'all',
         page: 1,
         limit: 200,
       }),
@@ -326,7 +336,7 @@ export async function getStudyPlanDetailForStudent(
 
   const [tasks, syllabus] = await Promise.all([
     plannerRepo.listTasksByPlan(plan.id, authed.userId),
-    loadSyllabusForSubjects(curriculumRepo, plan.subjectIds).catch(() => ({
+    loadSyllabusForSubjects(curriculumRepo, plan.subjectIds, authed.userId).catch(() => ({
       subjects: [] as SubjectRecord[],
       chapters: [] as ChapterRecord[],
       topics: [] as TopicRecord[],
@@ -394,7 +404,12 @@ export async function createStudyPlanForStudent(
     );
   }
 
-  const syllabus = await loadSyllabusForSubjects(curriculumRepo, input.subjectIds);
+  if (input.targetExaminationId) {
+    const targetExam = await curriculumRepo.findExaminationById(input.targetExaminationId);
+    assertCurriculumRecordReadable(targetExam, authed, 'Examination');
+  }
+
+  const syllabus = await loadSyllabusForSubjects(curriculumRepo, input.subjectIds, authed.userId);
   const adaptiveSignals = await collectVerifiedStudentSignals({
     userId: authed.userId,
     topics: syllabus.topics,
@@ -522,7 +537,12 @@ export async function updateOrRecalculateStudyPlanForStudent(
   const updatedSubjectIds = input.subjectIds ?? existingPlan.subjectIds;
   const updatedProficiency = input.proficiencyBySubject ?? existingPlan.proficiencyBySubject;
 
-  const syllabus = await loadSyllabusForSubjects(curriculumRepo, updatedSubjectIds);
+  if (input.targetExaminationId) {
+    const targetExam = await curriculumRepo.findExaminationById(input.targetExaminationId);
+    assertCurriculumRecordReadable(targetExam, authed, 'Examination');
+  }
+
+  const syllabus = await loadSyllabusForSubjects(curriculumRepo, updatedSubjectIds, authed.userId);
   const adaptiveSignals = await collectVerifiedStudentSignals({
     userId: authed.userId,
     topics: syllabus.topics,

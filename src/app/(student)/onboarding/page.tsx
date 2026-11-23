@@ -11,6 +11,10 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { ONBOARDING_CURRICULUM_CATALOG } from '@/config/onboarding-catalog';
+import {
+  EDUCATION_HIERARCHY_PRESETS,
+  type EducationPresetKey,
+} from '@/config/education-presets';
 import { useUIPreferences } from '@/components/providers/app-providers';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -62,9 +66,14 @@ export default function StudentOnboardingPage() {
   const { language, setLanguage } = useUIPreferences();
 
   const [country, setCountry] = React.useState('BD');
+  const [educationMode, setEducationMode] = React.useState<'standard' | 'custom'>('standard');
   const [educationSystemCode, setEducationSystemCode] = React.useState('BD-NCTB');
   const [educationLevelCode, setEducationLevelCode] = React.useState('HSC');
   const [targetExaminationCode, setTargetExaminationCode] = React.useState('HSC-2027');
+  const [customSystemName, setCustomSystemName] = React.useState('');
+  const [customSystemYear, setCustomSystemYear] = React.useState('2026-2027');
+  const [customHierarchyPreset, setCustomHierarchyPreset] =
+    React.useState<EducationPresetKey>('university');
   const [institution, setInstitution] = React.useState('');
   const [selectedSubjects, setSelectedSubjects] = React.useState<string[]>([
     'Physics 1st & 2nd Paper',
@@ -129,9 +138,25 @@ export default function StudentOnboardingPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           country,
-          educationSystemCode,
-          educationLevelCode,
+          educationMode,
+          educationSystemCode:
+            educationMode === 'custom'
+              ? customSystemName.trim().toUpperCase().replace(/[^A-Z0-9]+/g, '-').slice(0, 32) || 'CUSTOM-SYS'
+              : educationSystemCode,
+          educationLevelCode:
+            educationMode === 'custom' ? customHierarchyPreset.toUpperCase() : educationLevelCode,
           targetExaminationCode,
+          ...(educationMode === 'custom'
+            ? {
+                customSystem: {
+                  name: customSystemName.trim() || 'My Personal Learning System',
+                  educationType:
+                    EDUCATION_HIERARCHY_PRESETS[customHierarchyPreset]?.educationType ?? 'custom',
+                  academicYear: customSystemYear.trim() || undefined,
+                  hierarchyPreset: customHierarchyPreset,
+                },
+              }
+            : {}),
           selectedSubjects,
           preferredLanguage,
           dailyStudyMinutes: Number(dailyStudyMinutes),
@@ -204,36 +229,100 @@ export default function StudentOnboardingPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid gap-3 sm:grid-cols-2">
-              {ONBOARDING_CURRICULUM_CATALOG.educationLevels.map((lvl) => {
-                const active = educationLevelCode === lvl.code;
-                return (
-                  <button
-                    key={lvl.code}
-                    type="button"
-                    onClick={() => {
-                      setCountry(lvl.systemCode.startsWith('BD') ? 'BD' : 'INTL');
-                      handleLevelSelect(lvl.code, lvl.systemCode, lvl.defaultSubjects);
-                    }}
-                    className={`flex flex-col items-start rounded-xl border p-3.5 text-left transition-all cursor-pointer ${
-                      active
-                        ? 'border-[var(--primary)] bg-[var(--accent)]/40 ring-1 ring-[var(--primary)]'
-                        : 'border-[var(--border)] hover:bg-[var(--secondary)]'
-                    }`}
-                  >
-                    <div className="flex w-full items-center justify-between">
-                      <span className="text-sm font-semibold">
-                        {language === 'bn' ? lvl.nameBn : lvl.nameEn}
-                      </span>
-                      {active ? <CheckCircle2 className="size-4 text-[var(--primary)]" /> : null}
-                    </div>
-                    <span className="mt-1 text-xs text-[var(--muted-foreground)]">
-                      {lvl.systemCode}
-                    </span>
-                  </button>
-                );
-              })}
+            <div className="grid grid-cols-2 gap-2">
+              <Button
+                type="button"
+                variant={educationMode === 'standard' ? 'default' : 'outline'}
+                onClick={() => setEducationMode('standard')}
+              >
+                {language === 'bn' ? 'অপশন ক: স্ট্যান্ডার্ড শিক্ষা ব্যবস্থা' : 'Option A: Standard Curriculum'}
+              </Button>
+              <Button
+                type="button"
+                variant={educationMode === 'custom' ? 'default' : 'outline'}
+                onClick={() => setEducationMode('custom')}
+              >
+                {language === 'bn' ? 'অপশন খ: কাস্টম শিক্ষা ব্যবস্থা' : 'Option B: Create Custom System'}
+              </Button>
             </div>
+
+            {educationMode === 'standard' ? (
+              <div className="grid gap-3 sm:grid-cols-2">
+                {ONBOARDING_CURRICULUM_CATALOG.educationLevels.map((lvl) => {
+                  const active = educationLevelCode === lvl.code;
+                  return (
+                    <button
+                      key={lvl.code}
+                      type="button"
+                      onClick={() => {
+                        setCountry(lvl.systemCode.startsWith('BD') ? 'BD' : 'INTL');
+                        handleLevelSelect(lvl.code, lvl.systemCode, lvl.defaultSubjects);
+                      }}
+                      className={`flex flex-col items-start rounded-xl border p-3.5 text-left transition-all cursor-pointer ${
+                        active
+                          ? 'border-[var(--primary)] bg-[var(--accent)]/40 ring-1 ring-[var(--primary)]'
+                          : 'border-[var(--border)] hover:bg-[var(--secondary)]'
+                      }`}
+                    >
+                      <div className="flex w-full items-center justify-between">
+                        <span className="text-sm font-semibold">
+                          {language === 'bn' ? lvl.nameBn : lvl.nameEn}
+                        </span>
+                        {active ? <CheckCircle2 className="size-4 text-[var(--primary)]" /> : null}
+                      </div>
+                      <span className="mt-1 text-xs text-[var(--muted-foreground)]">
+                        {lvl.systemCode}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="grid gap-3 rounded-xl border border-dashed p-4 sm:grid-cols-3">
+                <div className="space-y-1 sm:col-span-2">
+                  <label htmlFor="customSysName" className="text-xs font-medium">
+                    {language === 'bn' ? 'কাস্টম সিস্টেমের নাম' : 'Custom System Name'}
+                  </label>
+                  <Input
+                    id="customSysName"
+                    value={customSystemName}
+                    onChange={(e) => setCustomSystemName(e.target.value)}
+                    placeholder="e.g., My CSE Semester Plan / Self-Study AI Roadmap"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label htmlFor="customSysYear" className="text-xs font-medium">
+                    {language === 'bn' ? 'সেশন / বছর' : 'Session / Year'}
+                  </label>
+                  <Input
+                    id="customSysYear"
+                    value={customSystemYear}
+                    onChange={(e) => setCustomSystemYear(e.target.value)}
+                    placeholder="2026-2027"
+                  />
+                </div>
+                <div className="space-y-1 sm:col-span-3">
+                  <span className="text-xs font-medium">
+                    {language === 'bn' ? 'একাডেমিক কাঠামো প্রিসেট' : 'Hierarchy & Terminology Preset'}
+                  </span>
+                  <div className="grid gap-2 sm:grid-cols-4">
+                    {(['school', 'university', 'self_learning', 'competitive'] as EducationPresetKey[]).map(
+                      (key) => (
+                        <Button
+                          key={key}
+                          type="button"
+                          size="sm"
+                          variant={customHierarchyPreset === key ? 'default' : 'outline'}
+                          onClick={() => setCustomHierarchyPreset(key)}
+                        >
+                          {EDUCATION_HIERARCHY_PRESETS[key].labelEn.split(' ')[0]}
+                        </Button>
+                      ),
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
 
             <div className="grid gap-4 pt-2 sm:grid-cols-2">
               <div className="space-y-1.5">

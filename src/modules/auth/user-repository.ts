@@ -40,6 +40,10 @@ export interface UserRecord {
   profileImageUrl?: string;
   preferredLanguage: SupportedLanguage;
   country: string;
+  educationSystemId?: string;
+  educationLevelId?: string;
+  targetExaminationId?: string;
+  selectedSubjectIds?: string[];
   institution?: string;
   learningPreferences: LearningStyle[];
   timezone: string;
@@ -103,6 +107,16 @@ const USER_OWNED_COLLECTIONS_TO_PURGE: readonly CollectionName[] = [
   'progressRecords',
   'notifications',
   'feedbackReports',
+  'educationLabelConfigs',
+];
+
+const CUSTOM_CURRICULUM_COLLECTIONS_TO_PURGE: readonly CollectionName[] = [
+  'educationSystems',
+  'educationLevels',
+  'examinations',
+  'subjects',
+  'chapters',
+  'topics',
 ];
 
 const DEFAULT_NOTIFICATION_PREFS: NotificationPreferences = {
@@ -128,6 +142,12 @@ function mapMongoDocToUserRecord(doc: Record<string, unknown>): UserRecord {
     profileImageUrl: doc.profileImageUrl ? String(doc.profileImageUrl) : undefined,
     preferredLanguage: (doc.preferredLanguage as SupportedLanguage) ?? 'en',
     country: String(doc.country ?? 'BD'),
+    educationSystemId: doc.educationSystemId ? String(doc.educationSystemId) : undefined,
+    educationLevelId: doc.educationLevelId ? String(doc.educationLevelId) : undefined,
+    targetExaminationId: doc.targetExaminationId ? String(doc.targetExaminationId) : undefined,
+    selectedSubjectIds: Array.isArray(doc.selectedSubjectIds)
+      ? doc.selectedSubjectIds.map((item) => String(item))
+      : undefined,
     institution: doc.institution ? String(doc.institution) : undefined,
     learningPreferences: Array.isArray(doc.learningPreferences)
       ? (doc.learningPreferences as LearningStyle[])
@@ -204,6 +224,30 @@ export class MongooseUserRepository implements UserRepository {
     const UserModel = getMongooseModel('users');
     const updatePayload: Record<string, unknown> = { ...patch };
 
+    if (patch.educationSystemId !== undefined) {
+      updatePayload.educationSystemId =
+        patch.educationSystemId && mongoose.Types.ObjectId.isValid(patch.educationSystemId)
+          ? new mongoose.Types.ObjectId(patch.educationSystemId)
+          : null;
+    }
+    if (patch.educationLevelId !== undefined) {
+      updatePayload.educationLevelId =
+        patch.educationLevelId && mongoose.Types.ObjectId.isValid(patch.educationLevelId)
+          ? new mongoose.Types.ObjectId(patch.educationLevelId)
+          : null;
+    }
+    if (patch.targetExaminationId !== undefined) {
+      updatePayload.targetExaminationId =
+        patch.targetExaminationId && mongoose.Types.ObjectId.isValid(patch.targetExaminationId)
+          ? new mongoose.Types.ObjectId(patch.targetExaminationId)
+          : null;
+    }
+    if (patch.selectedSubjectIds) {
+      updatePayload.selectedSubjectIds = patch.selectedSubjectIds
+        .filter((sid) => mongoose.Types.ObjectId.isValid(sid))
+        .map((sid) => new mongoose.Types.ObjectId(sid));
+    }
+
     if (patch.notificationPreferences || patch.onboardingMeta || patch.savedTopicIds) {
       const existing = await this.findById(id);
       const nextSavedIds = patch.savedTopicIds ?? existing?.savedTopicIds ?? [];
@@ -268,12 +312,17 @@ export class MongooseUserRepository implements UserRepository {
       const model = getMongooseModel(collectionName);
       await model.deleteMany({ userId: objectId });
     }
+    for (const collectionName of CUSTOM_CURRICULUM_COLLECTIONS_TO_PURGE) {
+      const model = getMongooseModel(collectionName);
+      await model.deleteMany({ scope: 'custom', ownerUserId: objectId });
+    }
 
     const UserModel = getMongooseModel('users');
     const result = await UserModel.deleteOne({ _id: objectId });
     return {
       deletedUser: result.deletedCount > 0,
-      purgedCollections: USER_OWNED_COLLECTIONS_TO_PURGE.length,
+      purgedCollections:
+        USER_OWNED_COLLECTIONS_TO_PURGE.length + CUSTOM_CURRICULUM_COLLECTIONS_TO_PURGE.length,
     };
   }
 }

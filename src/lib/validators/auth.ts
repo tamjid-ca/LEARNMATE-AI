@@ -42,9 +42,26 @@ export const verifyEmailSchema = z.object({
 
 export const onboardingSchema = z.object({
   country: z.string().trim().min(2, 'Country is required').max(64),
+  educationMode: z.enum(['standard', 'custom']).optional().default('standard'),
+  educationSystemId: z.string().trim().max(64).optional(),
   educationSystemCode: z.string().trim().min(2, 'Education system is required').max(64),
   educationLevelCode: z.string().trim().min(1, 'Education level or target exam is required').max(64),
   targetExaminationCode: z.string().trim().max(64).optional(),
+  targetExaminationId: z.string().trim().max(64).optional(),
+  customSystem: z
+    .object({
+      name: z.string().trim().min(2).max(140),
+      description: z.string().trim().max(500).optional(),
+      educationType: z
+        .enum(['school', 'university', 'competitive', 'certification', 'self_learning', 'custom'])
+        .default('custom'),
+      academicYear: z.string().trim().max(40).optional(),
+      hierarchyPreset: z
+        .enum(['default', 'school', 'university', 'self_learning', 'competitive'])
+        .optional()
+        .default('custom' as never),
+    })
+    .optional(),
   selectedSubjects: z
     .array(z.string().trim().min(1).max(80))
     .min(1, 'Select at least one subject to study')

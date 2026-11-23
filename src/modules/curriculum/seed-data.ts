@@ -4,7 +4,17 @@
  * Education System → Education Level → Examination → Subject → Chapter → Topic
  */
 
-import type { DifficultyLevel, SupportedLanguage } from '../../types/domain.ts';
+import type {
+  CurriculumScope,
+  DifficultyLevel,
+  EducationSystemType,
+  SupportedLanguage,
+  TopicPriority,
+} from '../../types/domain.ts';
+import type {
+  EducationLabelDefinition,
+  HierarchyLevelConfig,
+} from '../../config/education-presets.ts';
 
 export interface EducationSystemRecord {
   id: string;
@@ -13,6 +23,13 @@ export interface EducationSystemRecord {
   country: string;
   description?: string;
   supportedLanguages: SupportedLanguage[];
+  scope?: CurriculumScope;
+  ownerUserId?: string;
+  educationType?: EducationSystemType;
+  preferredLanguage?: SupportedLanguage;
+  academicYear?: string;
+  hierarchyLevels?: HierarchyLevelConfig[];
+  isArchived?: boolean;
   isActive: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -24,20 +41,41 @@ export interface EducationLevelRecord {
   code: string;
   name: string;
   description?: string;
+  hierarchyKey?: string;
+  parentLevelId?: string;
+  scope?: CurriculumScope;
+  ownerUserId?: string;
   order: number;
+  isArchived?: boolean;
   isActive: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
 
+export interface ExaminationTopicPriority {
+  topicId: string;
+  priority: TopicPriority;
+}
+
 export interface ExaminationRecord {
   id: string;
   educationSystemId: string;
-  educationLevelId: string;
+  educationLevelId?: string;
   code: string;
   name: string;
   description?: string;
   examDate?: Date | null;
+  customLabelTag?: string;
+  academicSession?: string;
+  subjectIds?: string[];
+  syllabusCoverage?: string;
+  totalMarks?: number;
+  durationMinutes?: number;
+  preparationGoals?: string[];
+  topicPriorities?: ExaminationTopicPriority[];
+  scope?: CurriculumScope;
+  ownerUserId?: string;
+  isArchived?: boolean;
   isActive: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -46,13 +84,20 @@ export interface ExaminationRecord {
 export interface SubjectRecord {
   id: string;
   educationSystemId: string;
-  educationLevelId: string;
+  educationLevelId?: string;
   examinationIds: string[];
   code: string;
   name: string;
   nameBn?: string;
   description?: string;
+  color?: string;
+  icon?: string;
+  difficultyLevel?: DifficultyLevel;
+  learningObjectives?: string[];
+  scope?: CurriculumScope;
+  ownerUserId?: string;
   order: number;
+  isArchived?: boolean;
   isActive: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -65,7 +110,11 @@ export interface ChapterRecord {
   title: string;
   titleBn?: string;
   description?: string;
+  learningObjectives?: string[];
+  scope?: CurriculumScope;
+  ownerUserId?: string;
   order: number;
+  isArchived?: boolean;
   isActive: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -87,8 +136,21 @@ export interface TopicRecord {
   curriculumReferences: string[];
   syllabusWeightVerified: boolean;
   syllabusPriorityScore?: number;
+  scope?: CurriculumScope;
+  ownerUserId?: string;
   order: number;
+  isArchived?: boolean;
   isActive: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface EducationLabelConfigRecord {
+  id: string;
+  userId: string;
+  educationSystemId?: string;
+  presetName: string;
+  labels: EducationLabelDefinition[];
   createdAt: Date;
   updatedAt: Date;
 }

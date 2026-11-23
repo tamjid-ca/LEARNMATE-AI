@@ -2,6 +2,10 @@
 
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  resolveEducationLabel,
+  type EducationLabelDefinition,
+} from '@/config/education-presets';
 import { useUIPreferences } from '@/components/providers/app-providers';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -22,6 +26,7 @@ interface EducationSystemItem {
   name: string;
   country: string;
   description?: string;
+  scope?: 'global' | 'custom';
 }
 
 interface EducationLevelItem {
@@ -29,26 +34,30 @@ interface EducationLevelItem {
   educationSystemId: string;
   code: string;
   name: string;
+  scope?: 'global' | 'custom';
 }
 
 interface ExaminationItem {
   id: string;
   educationSystemId: string;
-  educationLevelId: string;
+  educationLevelId?: string;
   code: string;
   name: string;
   examDate?: string | null;
+  scope?: 'global' | 'custom';
 }
 
 interface SubjectItem {
   id: string;
   educationSystemId: string;
-  educationLevelId: string;
+  educationLevelId?: string;
   examinationIds: string[];
   code: string;
   name: string;
   nameBn?: string;
   description?: string;
+  color?: string;
+  scope?: 'global' | 'custom';
 }
 
 interface ChapterItem {
@@ -58,6 +67,7 @@ interface ChapterItem {
   title: string;
   titleBn?: string;
   description?: string;
+  scope?: 'global' | 'custom';
 }
 
 interface TopicItem {
@@ -76,6 +86,7 @@ interface TopicItem {
   curriculumReferences: string[];
   syllabusWeightVerified: boolean;
   syllabusPriorityScore?: number;
+  scope?: 'global' | 'custom';
 }
 
 interface CurriculumApiData {
@@ -86,6 +97,8 @@ interface CurriculumApiData {
   chapters: ChapterItem[];
   topics: TopicItem[];
   savedTopicIds: string[];
+  labels?: EducationLabelDefinition[];
+  hierarchyPreview?: string;
 }
 
 interface PaginationMeta {
@@ -214,12 +227,19 @@ export default function StudentMyLearningPage() {
     return map;
   }, [data]);
 
+  const sysLabel = resolveEducationLabel(data?.labels, 'educationSystem', 'singular', 'Education System');
+  const lvlLabel = resolveEducationLabel(data?.labels, 'educationLevel', 'singular', 'Education Level');
+  const examLabel = resolveEducationLabel(data?.labels, 'examination', 'singular', 'Examination');
+  const subjLabel = resolveEducationLabel(data?.labels, 'subject', 'singular', 'Subject');
+  const chapLabel = resolveEducationLabel(data?.labels, 'chapter', 'singular', 'Chapter');
+  const topLabelPlural = resolveEducationLabel(data?.labels, 'topic', 'plural', 'Topics');
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
         <div>
           <Badge variant="default" className="mb-2">
-            {language === 'bn' ? 'পাঠ্যক্রম ও সিলেবাস ব্রাউজার' : '6-Tier Syllabus Explorer'}
+            {language === 'bn' ? 'পাঠ্যক্রম ও সিলেবাস ব্রাউজার' : 'Syllabus & Custom Curriculum'}
           </Badge>
           <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">
             {language === 'bn'
@@ -227,13 +247,19 @@ export default function StudentMyLearningPage() {
               : 'My Learning & Curriculum Explorer'}
           </h1>
           <p className="text-sm text-zinc-600 dark:text-zinc-400">
-            {language === 'bn'
-              ? 'শিক্ষা ব্যবস্থা → স্তর → পরীক্ষা → বিষয় → অধ্যায় → টপিক অনুসারে ব্রাউজ করুন এবং ব্যক্তিগত তালিকায় সংরক্ষণ করুন।'
-              : 'Navigate Education System → Level → Exam → Subject → Chapter → Topic and save topics to your study list.'}
+            {data?.hierarchyPreview ||
+              (language === 'bn'
+                ? 'শিক্ষা ব্যবস্থা → স্তর → পরীক্ষা → বিষয় → অধ্যায় → টপিক অনুসারে ব্রাউজ করুন এবং ব্যক্তিগত তালিকায় সংরক্ষণ করুন।'
+                : 'Navigate your academic hierarchy and save topics to your personal learning list.')}
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          <Link href="/settings/education">
+            <Button variant="secondary" size="sm">
+              {language === 'bn' ? 'কাস্টম শিক্ষা ও লেবেল' : 'Customize System & Labels'}
+            </Button>
+          </Link>
           <Button
             variant={savedOnly ? 'default' : 'outline'}
             size="sm"
@@ -274,7 +300,7 @@ export default function StudentMyLearningPage() {
               htmlFor="filter-system"
               className="text-xs font-medium text-zinc-500 dark:text-zinc-400"
             >
-              {language === 'bn' ? '১. শিক্ষা ব্যবস্থা' : '1. Education System'}
+              {language === 'bn' ? `১. ${sysLabel}` : `1. ${sysLabel}`}
             </label>
             <select
               id="filter-system"
@@ -289,10 +315,10 @@ export default function StudentMyLearningPage() {
               }}
               className="h-9 w-full rounded-xl border border-zinc-300 bg-white px-2.5 text-xs dark:border-zinc-700 dark:bg-zinc-900"
             >
-              <option value="">{language === 'bn' ? 'সব শিক্ষা ব্যবস্থা' : 'All Systems'}</option>
+              <option value="">{language === 'bn' ? 'সব' : `All (${sysLabel})`}</option>
               {(data?.educationSystems ?? []).map((sys) => (
                 <option key={sys.id} value={sys.id}>
-                  {sys.code} — {sys.name}
+                  {sys.scope === 'custom' ? `[Custom] ${sys.name}` : `${sys.code} — ${sys.name}`}
                 </option>
               ))}
             </select>
@@ -303,7 +329,7 @@ export default function StudentMyLearningPage() {
               htmlFor="filter-level"
               className="text-xs font-medium text-zinc-500 dark:text-zinc-400"
             >
-              {language === 'bn' ? '২. শিক্ষা স্তর' : '2. Education Level'}
+              {language === 'bn' ? `২. ${lvlLabel}` : `2. ${lvlLabel}`}
             </label>
             <select
               id="filter-level"
@@ -317,10 +343,10 @@ export default function StudentMyLearningPage() {
               }}
               className="h-9 w-full rounded-xl border border-zinc-300 bg-white px-2.5 text-xs dark:border-zinc-700 dark:bg-zinc-900"
             >
-              <option value="">{language === 'bn' ? 'সব স্তর' : 'All Levels'}</option>
+              <option value="">{language === 'bn' ? 'সব' : `All (${lvlLabel})`}</option>
               {(data?.educationLevels ?? []).map((lvl) => (
                 <option key={lvl.id} value={lvl.id}>
-                  {lvl.name}
+                  {lvl.scope === 'custom' ? `[Custom] ${lvl.name}` : lvl.name}
                 </option>
               ))}
             </select>
@@ -331,7 +357,7 @@ export default function StudentMyLearningPage() {
               htmlFor="filter-exam"
               className="text-xs font-medium text-zinc-500 dark:text-zinc-400"
             >
-              {language === 'bn' ? '৩. লক্ষ্য পরীক্ষা' : '3. Examination'}
+              {language === 'bn' ? `৩. ${examLabel}` : `3. ${examLabel}`}
             </label>
             <select
               id="filter-exam"
@@ -344,10 +370,10 @@ export default function StudentMyLearningPage() {
               }}
               className="h-9 w-full rounded-xl border border-zinc-300 bg-white px-2.5 text-xs dark:border-zinc-700 dark:bg-zinc-900"
             >
-              <option value="">{language === 'bn' ? 'সব পরীক্ষা' : 'All Examinations'}</option>
+              <option value="">{language === 'bn' ? 'সব' : `All (${examLabel})`}</option>
               {(data?.examinations ?? []).map((ex) => (
                 <option key={ex.id} value={ex.id}>
-                  {ex.name}
+                  {ex.scope === 'custom' ? `[Custom] ${ex.name}` : ex.name}
                 </option>
               ))}
             </select>
@@ -358,7 +384,7 @@ export default function StudentMyLearningPage() {
               htmlFor="filter-subject"
               className="text-xs font-medium text-zinc-500 dark:text-zinc-400"
             >
-              {language === 'bn' ? '৪. বিষয় (Subject)' : '4. Subject'}
+              {language === 'bn' ? `৪. ${subjLabel}` : `4. ${subjLabel}`}
             </label>
             <select
               id="filter-subject"
@@ -370,10 +396,14 @@ export default function StudentMyLearningPage() {
               }}
               className="h-9 w-full rounded-xl border border-zinc-300 bg-white px-2.5 text-xs dark:border-zinc-700 dark:bg-zinc-900"
             >
-              <option value="">{language === 'bn' ? 'সব বিষয়' : 'All Subjects'}</option>
+              <option value="">{language === 'bn' ? 'সব' : `All (${subjLabel})`}</option>
               {(data?.subjects ?? []).map((sub) => (
                 <option key={sub.id} value={sub.id}>
-                  {language === 'bn' && sub.nameBn ? `${sub.nameBn} (${sub.name})` : sub.name}
+                  {sub.scope === 'custom'
+                    ? `[Custom] ${sub.name}`
+                    : language === 'bn' && sub.nameBn
+                      ? `${sub.nameBn} (${sub.name})`
+                      : sub.name}
                 </option>
               ))}
             </select>
@@ -384,7 +414,7 @@ export default function StudentMyLearningPage() {
               htmlFor="filter-chapter"
               className="text-xs font-medium text-zinc-500 dark:text-zinc-400"
             >
-              {language === 'bn' ? '৫. অধ্যায় (Chapter)' : '5. Chapter'}
+              {language === 'bn' ? `৫. ${chapLabel}` : `5. ${chapLabel}`}
             </label>
             <select
               id="filter-chapter"
@@ -395,10 +425,10 @@ export default function StudentMyLearningPage() {
               }}
               className="h-9 w-full rounded-xl border border-zinc-300 bg-white px-2.5 text-xs dark:border-zinc-700 dark:bg-zinc-900"
             >
-              <option value="">{language === 'bn' ? 'সব অধ্যায়' : 'All Chapters'}</option>
+              <option value="">{language === 'bn' ? 'সব' : `All (${chapLabel})`}</option>
               {(data?.chapters ?? []).map((ch) => (
                 <option key={ch.id} value={ch.id}>
-                  Ch {ch.chapterNumber}: {language === 'bn' && ch.titleBn ? ch.titleBn : ch.title}
+                  {chapLabel} {ch.chapterNumber}: {language === 'bn' && ch.titleBn ? ch.titleBn : ch.title}
                 </option>
               ))}
             </select>
@@ -409,7 +439,7 @@ export default function StudentMyLearningPage() {
               htmlFor="filter-search"
               className="text-xs font-medium text-zinc-500 dark:text-zinc-400"
             >
-              {language === 'bn' ? '৬. টপিক অনুসন্ধান' : '6. Topic Search'}
+              {language === 'bn' ? `৬. ${topLabelPlural} অনুসন্ধান` : `6. Search ${topLabelPlural}`}
             </label>
             <Input
               id="filter-search"
@@ -502,6 +532,7 @@ export default function StudentMyLearningPage() {
                       <div>
                         <div className="flex flex-wrap items-center gap-1.5">
                           <Badge variant="outline">{topic.code}</Badge>
+                          {topic.scope === 'custom' ? <Badge variant="accent">Custom</Badge> : null}
                           <Badge
                             variant={
                               topic.difficulty === 'hard'

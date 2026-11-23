@@ -27,6 +27,35 @@ export type LearningStyle = (typeof LEARNING_STYLES)[number];
 export const DIFFICULTY_LEVELS = ['easy', 'medium', 'hard'] as const;
 export type DifficultyLevel = (typeof DIFFICULTY_LEVELS)[number];
 
+export const CURRICULUM_SCOPES = ['global', 'custom'] as const;
+export type CurriculumScope = (typeof CURRICULUM_SCOPES)[number];
+
+export const EDUCATION_SYSTEM_TYPES = [
+  'standard',
+  'school',
+  'university',
+  'competitive',
+  'certification',
+  'self_learning',
+  'custom',
+] as const;
+export type EducationSystemType = (typeof EDUCATION_SYSTEM_TYPES)[number];
+
+export const ACADEMIC_LABEL_KEYS = [
+  'educationSystem',
+  'educationLevel',
+  'academicYear',
+  'semester',
+  'examination',
+  'subject',
+  'chapter',
+  'topic',
+] as const;
+export type AcademicLabelKey = (typeof ACADEMIC_LABEL_KEYS)[number];
+
+export const TOPIC_PRIORITIES = ['high', 'medium', 'low'] as const;
+export type TopicPriority = (typeof TOPIC_PRIORITIES)[number];
+
 export const MATERIAL_TYPES = [
   'topic_explanation',
   'chapter_summary',
@@ -115,6 +144,7 @@ export const COLLECTION_NAMES = [
   'subjects',
   'chapters',
   'topics',
+  'educationLabelConfigs',
   'conversations',
   'messages',
   'generatedContents',

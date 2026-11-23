@@ -45,6 +45,7 @@ import {
   getActiveCurriculumRepository,
   type CurriculumRepository,
 } from '../curriculum/curriculum-repository.ts';
+import { assertCurriculumRecordReadable } from '../curriculum/custom-education-service.ts';
 import {
   getActiveTutorMaterialsRepository,
   type ConversationRecord,
@@ -66,8 +67,12 @@ interface ResolvedAcademicContext {
 async function resolveAcademicContext(
   ids: { subjectId?: string; chapterId?: string; topicId?: string },
   curriculumRepo: CurriculumRepository,
+  actor?: AuthenticatedActor,
 ): Promise<ResolvedAcademicContext> {
   const topic = ids.topicId ? await curriculumRepo.findTopicById(ids.topicId) : null;
+  if (topic && actor) {
+    assertCurriculumRecordReadable(topic, actor, 'Topic');
+  }
   const effectiveChapterId = topic?.chapterId ?? ids.chapterId;
   const effectiveSubjectId = topic?.subjectId ?? ids.subjectId;
 
@@ -75,6 +80,12 @@ async function resolveAcademicContext(
     effectiveChapterId ? curriculumRepo.findChapterById(effectiveChapterId) : Promise.resolve(null),
     effectiveSubjectId ? curriculumRepo.findSubjectById(effectiveSubjectId) : Promise.resolve(null),
   ]);
+  if (chapter && actor) {
+    assertCurriculumRecordReadable(chapter, actor, 'Chapter');
+  }
+  if (subject && actor) {
+    assertCurriculumRecordReadable(subject, actor, 'Subject');
+  }
 
   const parts: string[] = [];
   if (subject) parts.push(`Subject: ${subject.name} (${subject.code})`);
@@ -164,6 +175,7 @@ export async function createConversationForStudent(
       topicId: data.topicId,
     },
     curriculumRepo,
+    verified,
   );
 
   const defaultTitle =
@@ -275,6 +287,7 @@ export async function updateConversationForStudent(
       patch.chapterId = parsed.data.chapterId ?? undefined;
     } else {
       const topic = await curriculumRepo.findTopicById(parsed.data.topicId);
+      assertCurriculumRecordReadable(topic, verified, 'Topic');
       patch.topicId = parsed.data.topicId;
       patch.subjectId = topic?.subjectId ?? parsed.data.subjectId ?? existing.subjectId;
       patch.chapterId = topic?.chapterId ?? parsed.data.chapterId ?? existing.chapterId;
@@ -375,6 +388,7 @@ export async function sendTutorMessageForStudent(
       topicId: effectiveTopicId,
     },
     curriculumRepo,
+    verified,
   );
 
   const userMessage = await repo.createMessage({
@@ -606,6 +620,9 @@ export async function generateLearningMaterialForStudent(
 
   const data = parsed.data;
   const topic = data.topicId ? await curriculumRepo.findTopicById(data.topicId) : null;
+  if (topic) {
+    assertCurriculumRecordReadable(topic, verified, 'Topic');
+  }
   if (data.topicId && !topic && !data.customTopicTitle) {
     throw AppError.notFound('Topic');
   }
@@ -618,6 +635,7 @@ export async function generateLearningMaterialForStudent(
           topicId: topic.id,
         },
         curriculumRepo,
+        verified,
       )
     : await resolveAcademicContext(
         {
@@ -625,6 +643,7 @@ export async function generateLearningMaterialForStudent(
           chapterId: data.chapterId,
         },
         curriculumRepo,
+        verified,
       );
 
   const effectiveTopicTitle = data.customTopicTitle?.trim() || context.topicTitle;

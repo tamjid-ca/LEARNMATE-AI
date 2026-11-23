@@ -35,6 +35,7 @@ import {
   type CurriculumRepository,
   getActiveCurriculumRepository,
 } from '../curriculum/curriculum-repository.ts';
+import { assertCurriculumRecordReadable } from '../curriculum/custom-education-service.ts';
 import { toDateKey } from '../planner/scheduler-engine.ts';
 import {
   getDefaultStudyPlanRepository,
@@ -430,8 +431,18 @@ export async function getStudentAnalyticsDashboard(
     studyPlans,
     studyTasks,
   ] = await Promise.all([
-    curriculumRepo.listSubjects({ includeInactive: false }),
-    curriculumRepo.listTopics({ includeInactive: false, page: 1, limit: 250 }),
+    curriculumRepo.listSubjects({
+      includeInactive: false,
+      viewerUserId: authed.userId,
+      scopeFilter: 'all',
+    }),
+    curriculumRepo.listTopics({
+      includeInactive: false,
+      viewerUserId: authed.userId,
+      scopeFilter: 'all',
+      page: 1,
+      limit: 250,
+    }),
     analyticsRepo.listProgressByUser(authed.userId),
     quizRepo.listQuizzesByUser({ userId: authed.userId, page: 1, limit: 100 }),
     quizRepo.listAttemptsByUser(authed.userId, 100),
@@ -891,6 +902,7 @@ export async function recordTopicStudyActivityForStudent(
   const { analyticsRepo, curriculumRepo, referenceDate } = resolveDependencies(options);
 
   const topic = await curriculumRepo.findTopicById(input.topicId);
+  assertCurriculumRecordReadable(topic, authed, 'Topic');
   if (!topic) {
     throw new AppError('NOT_FOUND', 'Curriculum topic not found.', 404);
   }

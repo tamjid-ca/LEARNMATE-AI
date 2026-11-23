@@ -4,16 +4,26 @@
  */
 
 import { randomBytes } from 'node:crypto';
-import mongoose from 'mongoose';
+import mongoose, { type Types } from 'mongoose';
+import type { EducationLabelDefinition, HierarchyLevelConfig } from '../../config/education-presets.ts';
 import { connectToDatabase } from '../../lib/database/mongoose.ts';
 import { getMongooseModel } from '../../models/index.ts';
-import type { DifficultyLevel, SupportedLanguage, UserRole } from '../../types/domain.ts';
+import type {
+  CurriculumScope,
+  DifficultyLevel,
+  EducationSystemType,
+  SupportedLanguage,
+  TopicPriority,
+  UserRole,
+} from '../../types/domain.ts';
 import {
   type AuditLogRecord,
   type ChapterRecord,
+  type EducationLabelConfigRecord,
   type EducationLevelRecord,
   type EducationSystemRecord,
   type ExaminationRecord,
+  type ExaminationTopicPriority,
   INITIAL_CHAPTERS,
   INITIAL_EDUCATION_LEVELS,
   INITIAL_EDUCATION_SYSTEMS,
@@ -24,7 +34,13 @@ import {
   type TopicRecord,
 } from './seed-data.ts';
 
-export interface TopicQueryFilter {
+export interface CurriculumVisibilityFilter {
+  viewerUserId?: string;
+  scopeFilter?: 'all' | 'global' | 'custom';
+  includeArchived?: boolean;
+}
+
+export interface TopicQueryFilter extends CurriculumVisibilityFilter {
   subjectId?: string;
   chapterId?: string;
   difficulty?: DifficultyLevel;
@@ -37,7 +53,11 @@ export interface TopicQueryFilter {
 
 export interface CurriculumRepository {
   // Education Systems
-  listEducationSystems(includeInactive?: boolean, country?: string): Promise<EducationSystemRecord[]>;
+  listEducationSystems(
+    includeInactive?: boolean,
+    country?: string,
+    visibility?: CurriculumVisibilityFilter,
+  ): Promise<EducationSystemRecord[]>;
   findEducationSystemById(id: string): Promise<EducationSystemRecord | null>;
   createEducationSystem(
     data: Omit<EducationSystemRecord, 'id' | 'createdAt' | 'updatedAt'>,
@@ -52,6 +72,7 @@ export interface CurriculumRepository {
   listEducationLevels(
     educationSystemId?: string,
     includeInactive?: boolean,
+    visibility?: CurriculumVisibilityFilter,
   ): Promise<EducationLevelRecord[]>;
   findEducationLevelById(id: string): Promise<EducationLevelRecord | null>;
   createEducationLevel(
@@ -65,7 +86,11 @@ export interface CurriculumRepository {
 
   // Examinations
   listExaminations(
-    filters?: { educationSystemId?: string; educationLevelId?: string; includeInactive?: boolean },
+    filters?: CurriculumVisibilityFilter & {
+      educationSystemId?: string;
+      educationLevelId?: string;
+      includeInactive?: boolean;
+    },
   ): Promise<ExaminationRecord[]>;
   findExaminationById(id: string): Promise<ExaminationRecord | null>;
   createExamination(
@@ -78,12 +103,14 @@ export interface CurriculumRepository {
   deleteExamination(id: string): Promise<boolean>;
 
   // Subjects
-  listSubjects(filters?: {
-    educationSystemId?: string;
-    educationLevelId?: string;
-    examinationId?: string;
-    includeInactive?: boolean;
-  }): Promise<SubjectRecord[]>;
+  listSubjects(
+    filters?: CurriculumVisibilityFilter & {
+      educationSystemId?: string;
+      educationLevelId?: string;
+      examinationId?: string;
+      includeInactive?: boolean;
+    },
+  ): Promise<SubjectRecord[]>;
   findSubjectById(id: string): Promise<SubjectRecord | null>;
   createSubject(
     data: Omit<SubjectRecord, 'id' | 'createdAt' | 'updatedAt'>,
@@ -95,7 +122,11 @@ export interface CurriculumRepository {
   deleteSubject(id: string): Promise<boolean>;
 
   // Chapters
-  listChapters(subjectId?: string, includeInactive?: boolean): Promise<ChapterRecord[]>;
+  listChapters(
+    subjectId?: string,
+    includeInactive?: boolean,
+    visibility?: CurriculumVisibilityFilter,
+  ): Promise<ChapterRecord[]>;
   findChapterById(id: string): Promise<ChapterRecord | null>;
   createChapter(
     data: Omit<ChapterRecord, 'id' | 'createdAt' | 'updatedAt'>,
@@ -116,6 +147,20 @@ export interface CurriculumRepository {
   ): Promise<TopicRecord | null>;
   deleteTopic(id: string): Promise<boolean>;
 
+  // Education Label Configurations
+  findLabelConfig(
+    userId: string,
+    educationSystemId?: string,
+  ): Promise<EducationLabelConfigRecord | null>;
+  listLabelConfigsByUser(userId: string): Promise<EducationLabelConfigRecord[]>;
+  upsertLabelConfig(data: {
+    userId: string;
+    educationSystemId?: string;
+    presetName: string;
+    labels: EducationLabelDefinition[];
+  }): Promise<EducationLabelConfigRecord>;
+  deleteLabelConfig(userId: string, educationSystemId?: string): Promise<boolean>;
+
   // Audit Logs
   recordAuditLog(entry: {
     actorId: string;
@@ -132,6 +177,40 @@ function generateHexObjectId(): string {
   return randomBytes(12).toString('hex');
 }
 
+function toObjectIdIfValid(id: string | undefined): Types.ObjectId | undefined {
+  return id && mongoose.Types.ObjectId.isValid(id) ? new mongoose.Types.ObjectId(id) : undefined;
+}
+
+function normalizeScope(value: unknown): CurriculumScope {
+  return value === 'custom' ? 'custom' : 'global';
+}
+
+function mapHierarchyLevels(raw: unknown): HierarchyLevelConfig[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  return raw
+    .filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object'))
+    .map((item, idx) => ({
+      key: String(item.key ?? `level_${idx + 1}`),
+      singularLabel: String(item.singularLabel ?? 'Level'),
+      pluralLabel: String(item.pluralLabel ?? 'Levels'),
+      order: typeof item.order === 'number' ? item.order : idx,
+      required: item.required !== false,
+      allowMultiple: Boolean(item.allowMultiple),
+    }));
+}
+
+function mapTopicPriorities(raw: unknown): ExaminationTopicPriority[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  return raw
+    .filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object'))
+    .map((item) => ({
+      topicId: String(item.topicId ?? ''),
+      priority:
+        item.priority === 'high' || item.priority === 'low' ? (item.priority as TopicPriority) : 'medium',
+    }))
+    .filter((p) => p.topicId.length > 0);
+}
+
 function mapDocToSystem(doc: Record<string, unknown>): EducationSystemRecord {
   return {
     id: String(doc._id),
@@ -142,6 +221,13 @@ function mapDocToSystem(doc: Record<string, unknown>): EducationSystemRecord {
     supportedLanguages: Array.isArray(doc.supportedLanguages)
       ? (doc.supportedLanguages as SupportedLanguage[])
       : ['en', 'bn'],
+    scope: normalizeScope(doc.scope),
+    ownerUserId: doc.ownerUserId ? String(doc.ownerUserId) : undefined,
+    educationType: (doc.educationType as EducationSystemType) ?? 'standard',
+    preferredLanguage: doc.preferredLanguage ? (doc.preferredLanguage as SupportedLanguage) : 'en',
+    academicYear: doc.academicYear ? String(doc.academicYear) : undefined,
+    hierarchyLevels: mapHierarchyLevels(doc.hierarchyLevels),
+    isArchived: Boolean(doc.isArchived),
     isActive: doc.isActive !== false,
     createdAt: doc.createdAt ? new Date(String(doc.createdAt)) : new Date(),
     updatedAt: doc.updatedAt ? new Date(String(doc.updatedAt)) : new Date(),
@@ -155,7 +241,12 @@ function mapDocToLevel(doc: Record<string, unknown>): EducationLevelRecord {
     code: String(doc.code ?? ''),
     name: String(doc.name ?? ''),
     description: doc.description ? String(doc.description) : undefined,
+    hierarchyKey: doc.hierarchyKey ? String(doc.hierarchyKey) : undefined,
+    parentLevelId: doc.parentLevelId ? String(doc.parentLevelId) : undefined,
+    scope: normalizeScope(doc.scope),
+    ownerUserId: doc.ownerUserId ? String(doc.ownerUserId) : undefined,
     order: typeof doc.order === 'number' ? doc.order : 0,
+    isArchived: Boolean(doc.isArchived),
     isActive: doc.isActive !== false,
     createdAt: doc.createdAt ? new Date(String(doc.createdAt)) : new Date(),
     updatedAt: doc.updatedAt ? new Date(String(doc.updatedAt)) : new Date(),
@@ -166,11 +257,24 @@ function mapDocToExamination(doc: Record<string, unknown>): ExaminationRecord {
   return {
     id: String(doc._id),
     educationSystemId: String(doc.educationSystemId ?? ''),
-    educationLevelId: String(doc.educationLevelId ?? ''),
+    educationLevelId: doc.educationLevelId ? String(doc.educationLevelId) : undefined,
     code: String(doc.code ?? ''),
     name: String(doc.name ?? ''),
     description: doc.description ? String(doc.description) : undefined,
     examDate: doc.examDate ? new Date(String(doc.examDate)) : null,
+    customLabelTag: doc.customLabelTag ? String(doc.customLabelTag) : undefined,
+    academicSession: doc.academicSession ? String(doc.academicSession) : undefined,
+    subjectIds: Array.isArray(doc.subjectIds) ? doc.subjectIds.map((id) => String(id)) : undefined,
+    syllabusCoverage: doc.syllabusCoverage ? String(doc.syllabusCoverage) : undefined,
+    totalMarks: typeof doc.totalMarks === 'number' ? doc.totalMarks : undefined,
+    durationMinutes: typeof doc.durationMinutes === 'number' ? doc.durationMinutes : undefined,
+    preparationGoals: Array.isArray(doc.preparationGoals)
+      ? doc.preparationGoals.map(String)
+      : undefined,
+    topicPriorities: mapTopicPriorities(doc.topicPriorities),
+    scope: normalizeScope(doc.scope),
+    ownerUserId: doc.ownerUserId ? String(doc.ownerUserId) : undefined,
+    isArchived: Boolean(doc.isArchived),
     isActive: doc.isActive !== false,
     createdAt: doc.createdAt ? new Date(String(doc.createdAt)) : new Date(),
     updatedAt: doc.updatedAt ? new Date(String(doc.updatedAt)) : new Date(),
@@ -181,7 +285,7 @@ function mapDocToSubject(doc: Record<string, unknown>): SubjectRecord {
   return {
     id: String(doc._id),
     educationSystemId: String(doc.educationSystemId ?? ''),
-    educationLevelId: String(doc.educationLevelId ?? ''),
+    educationLevelId: doc.educationLevelId ? String(doc.educationLevelId) : undefined,
     examinationIds: Array.isArray(doc.examinationIds)
       ? doc.examinationIds.map((id) => String(id))
       : [],
@@ -189,7 +293,16 @@ function mapDocToSubject(doc: Record<string, unknown>): SubjectRecord {
     name: String(doc.name ?? ''),
     nameBn: doc.nameBn ? String(doc.nameBn) : undefined,
     description: doc.description ? String(doc.description) : undefined,
+    color: doc.color ? String(doc.color) : undefined,
+    icon: doc.icon ? String(doc.icon) : undefined,
+    difficultyLevel: (doc.difficultyLevel as DifficultyLevel) ?? undefined,
+    learningObjectives: Array.isArray(doc.learningObjectives)
+      ? doc.learningObjectives.map(String)
+      : undefined,
+    scope: normalizeScope(doc.scope),
+    ownerUserId: doc.ownerUserId ? String(doc.ownerUserId) : undefined,
     order: typeof doc.order === 'number' ? doc.order : 0,
+    isArchived: Boolean(doc.isArchived),
     isActive: doc.isActive !== false,
     createdAt: doc.createdAt ? new Date(String(doc.createdAt)) : new Date(),
     updatedAt: doc.updatedAt ? new Date(String(doc.updatedAt)) : new Date(),
@@ -204,7 +317,13 @@ function mapDocToChapter(doc: Record<string, unknown>): ChapterRecord {
     title: String(doc.title ?? ''),
     titleBn: doc.titleBn ? String(doc.titleBn) : undefined,
     description: doc.description ? String(doc.description) : undefined,
+    learningObjectives: Array.isArray(doc.learningObjectives)
+      ? doc.learningObjectives.map(String)
+      : undefined,
+    scope: normalizeScope(doc.scope),
+    ownerUserId: doc.ownerUserId ? String(doc.ownerUserId) : undefined,
     order: typeof doc.order === 'number' ? doc.order : 0,
+    isArchived: Boolean(doc.isArchived),
     isActive: doc.isActive !== false,
     createdAt: doc.createdAt ? new Date(String(doc.createdAt)) : new Date(),
     updatedAt: doc.updatedAt ? new Date(String(doc.updatedAt)) : new Date(),
@@ -235,11 +354,88 @@ function mapDocToTopic(doc: Record<string, unknown>): TopicRecord {
     syllabusWeightVerified: Boolean(doc.syllabusWeightVerified),
     syllabusPriorityScore:
       typeof doc.syllabusPriorityScore === 'number' ? doc.syllabusPriorityScore : undefined,
+    scope: normalizeScope(doc.scope),
+    ownerUserId: doc.ownerUserId ? String(doc.ownerUserId) : undefined,
     order: typeof doc.order === 'number' ? doc.order : 0,
+    isArchived: Boolean(doc.isArchived),
     isActive: doc.isActive !== false,
     createdAt: doc.createdAt ? new Date(String(doc.createdAt)) : new Date(),
     updatedAt: doc.updatedAt ? new Date(String(doc.updatedAt)) : new Date(),
   };
+}
+
+function mapDocToLabelConfig(doc: Record<string, unknown>): EducationLabelConfigRecord {
+  const rawLabels = Array.isArray(doc.labels) ? doc.labels : [];
+  return {
+    id: String(doc._id),
+    userId: String(doc.userId ?? ''),
+    educationSystemId: doc.educationSystemId ? String(doc.educationSystemId) : undefined,
+    presetName: String(doc.presetName ?? 'default'),
+    labels: rawLabels
+      .filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object'))
+      .map((item, idx) => ({
+        key: String(item.key ?? `label_${idx}`),
+        defaultLabel: String(item.defaultLabel ?? item.singular ?? 'Label'),
+        singular: String(item.singular ?? item.defaultLabel ?? 'Label'),
+        plural: String(item.plural ?? item.singular ?? 'Labels'),
+        order: typeof item.order === 'number' ? item.order : idx,
+        required: Boolean(item.required),
+        allowMultiple: Boolean(item.allowMultiple),
+        isVisible: item.isVisible !== false,
+      })),
+    createdAt: doc.createdAt ? new Date(String(doc.createdAt)) : new Date(),
+    updatedAt: doc.updatedAt ? new Date(String(doc.updatedAt)) : new Date(),
+  };
+}
+
+function buildMongoVisibilityClauses(visibility?: CurriculumVisibilityFilter): Record<string, unknown>[] {
+  const clauses: Record<string, unknown>[] = [];
+  if (!visibility?.includeArchived) {
+    clauses.push({ isArchived: { $ne: true } });
+  }
+
+  const scopeFilter = visibility?.scopeFilter ?? 'all';
+  const viewerId = toObjectIdIfValid(visibility?.viewerUserId);
+
+  if (scopeFilter === 'custom') {
+    if (!viewerId) {
+      clauses.push({ _id: null });
+    } else {
+      clauses.push({ scope: 'custom', ownerUserId: viewerId });
+    }
+  } else if (scopeFilter === 'global' || !viewerId) {
+    clauses.push({ $or: [{ scope: 'global' }, { scope: { $exists: false } }] });
+  } else {
+    clauses.push({
+      $or: [
+        { scope: 'global' },
+        { scope: { $exists: false } },
+        { scope: 'custom', ownerUserId: viewerId },
+      ],
+    });
+  }
+
+  return clauses;
+}
+
+function matchesInMemoryVisibility(
+  record: { scope?: CurriculumScope; ownerUserId?: string; isArchived?: boolean },
+  visibility?: CurriculumVisibilityFilter,
+): boolean {
+  if (!visibility?.includeArchived && record.isArchived) {
+    return false;
+  }
+  const effectiveScope = record.scope ?? 'global';
+  const scopeFilter = visibility?.scopeFilter ?? 'all';
+  const viewerUserId = visibility?.viewerUserId;
+
+  if (scopeFilter === 'custom') {
+    return Boolean(viewerUserId && effectiveScope === 'custom' && record.ownerUserId === viewerUserId);
+  }
+  if (scopeFilter === 'global' || !viewerUserId) {
+    return effectiveScope === 'global';
+  }
+  return effectiveScope === 'global' || (effectiveScope === 'custom' && record.ownerUserId === viewerUserId);
 }
 
 function mapDocToAuditLog(doc: Record<string, unknown>): AuditLogRecord {
@@ -433,13 +629,16 @@ export class MongooseCurriculumRepository implements CurriculumRepository {
   async listEducationSystems(
     includeInactive = false,
     country?: string,
+    visibility?: CurriculumVisibilityFilter,
   ): Promise<EducationSystemRecord[]> {
     await this.ensureSeeded();
     const Model = getMongooseModel('educationSystems');
-    const filter: Record<string, unknown> = {};
-    if (!includeInactive) filter.isActive = true;
-    if (country) filter.country = country.toUpperCase();
-    const docs = await Model.find(filter).sort({ code: 1 }).lean();
+    const clauses = buildMongoVisibilityClauses(visibility);
+    if (!includeInactive) clauses.push({ isActive: true });
+    if (country) clauses.push({ country: country.toUpperCase() });
+    const docs = await Model.find(clauses.length === 1 ? clauses[0]! : { $and: clauses })
+      .sort({ scope: 1, code: 1 })
+      .lean();
     return docs.map(mapDocToSystem);
   }
 
@@ -456,7 +655,13 @@ export class MongooseCurriculumRepository implements CurriculumRepository {
   ): Promise<EducationSystemRecord> {
     await this.ensureSeeded();
     const Model = getMongooseModel('educationSystems');
-    const created = await Model.create(data);
+    const created = await Model.create({
+      ...data,
+      scope: data.scope ?? 'global',
+      isArchived: data.isArchived ?? false,
+      educationType: data.educationType ?? 'standard',
+      ...(data.ownerUserId ? { ownerUserId: toObjectIdIfValid(data.ownerUserId) } : {}),
+    });
     return mapDocToSystem(created as unknown as Record<string, unknown>);
   }
 
@@ -467,7 +672,9 @@ export class MongooseCurriculumRepository implements CurriculumRepository {
     await this.ensureSeeded();
     if (!mongoose.Types.ObjectId.isValid(id)) return null;
     const Model = getMongooseModel('educationSystems');
-    const updated = await Model.findByIdAndUpdate(id, { $set: patch }, { new: true }).lean();
+    const payload: Record<string, unknown> = { ...patch };
+    if (patch.ownerUserId) payload.ownerUserId = toObjectIdIfValid(patch.ownerUserId);
+    const updated = await Model.findByIdAndUpdate(id, { $set: payload }, { new: true }).lean();
     return updated ? mapDocToSystem(updated) : null;
   }
 
@@ -482,15 +689,18 @@ export class MongooseCurriculumRepository implements CurriculumRepository {
   async listEducationLevels(
     educationSystemId?: string,
     includeInactive = false,
+    visibility?: CurriculumVisibilityFilter,
   ): Promise<EducationLevelRecord[]> {
     await this.ensureSeeded();
     const Model = getMongooseModel('educationLevels');
-    const filter: Record<string, unknown> = {};
-    if (!includeInactive) filter.isActive = true;
+    const clauses = buildMongoVisibilityClauses(visibility);
+    if (!includeInactive) clauses.push({ isActive: true });
     if (educationSystemId && mongoose.Types.ObjectId.isValid(educationSystemId)) {
-      filter.educationSystemId = new mongoose.Types.ObjectId(educationSystemId);
+      clauses.push({ educationSystemId: new mongoose.Types.ObjectId(educationSystemId) });
     }
-    const docs = await Model.find(filter).sort({ order: 1, code: 1 }).lean();
+    const docs = await Model.find(clauses.length === 1 ? clauses[0]! : { $and: clauses })
+      .sort({ order: 1, code: 1 })
+      .lean();
     return docs.map(mapDocToLevel);
   }
 
@@ -509,6 +719,10 @@ export class MongooseCurriculumRepository implements CurriculumRepository {
     const Model = getMongooseModel('educationLevels');
     const created = await Model.create({
       ...data,
+      scope: data.scope ?? 'global',
+      isArchived: data.isArchived ?? false,
+      ...(data.ownerUserId ? { ownerUserId: toObjectIdIfValid(data.ownerUserId) } : {}),
+      ...(data.parentLevelId ? { parentLevelId: toObjectIdIfValid(data.parentLevelId) } : {}),
       educationSystemId: new mongoose.Types.ObjectId(data.educationSystemId),
     });
     return mapDocToLevel(created as unknown as Record<string, unknown>);
@@ -525,6 +739,12 @@ export class MongooseCurriculumRepository implements CurriculumRepository {
     if (patch.educationSystemId) {
       payload.educationSystemId = new mongoose.Types.ObjectId(patch.educationSystemId);
     }
+    if (patch.parentLevelId) {
+      payload.parentLevelId = toObjectIdIfValid(patch.parentLevelId);
+    }
+    if (patch.ownerUserId) {
+      payload.ownerUserId = toObjectIdIfValid(patch.ownerUserId);
+    }
     const updated = await Model.findByIdAndUpdate(id, { $set: payload }, { new: true }).lean();
     return updated ? mapDocToLevel(updated) : null;
   }
@@ -537,22 +757,26 @@ export class MongooseCurriculumRepository implements CurriculumRepository {
     return res.deletedCount > 0;
   }
 
-  async listExaminations(filters?: {
-    educationSystemId?: string;
-    educationLevelId?: string;
-    includeInactive?: boolean;
-  }): Promise<ExaminationRecord[]> {
+  async listExaminations(
+    filters?: CurriculumVisibilityFilter & {
+      educationSystemId?: string;
+      educationLevelId?: string;
+      includeInactive?: boolean;
+    },
+  ): Promise<ExaminationRecord[]> {
     await this.ensureSeeded();
     const Model = getMongooseModel('examinations');
-    const query: Record<string, unknown> = {};
-    if (!filters?.includeInactive) query.isActive = true;
+    const clauses = buildMongoVisibilityClauses(filters);
+    if (!filters?.includeInactive) clauses.push({ isActive: true });
     if (filters?.educationSystemId && mongoose.Types.ObjectId.isValid(filters.educationSystemId)) {
-      query.educationSystemId = new mongoose.Types.ObjectId(filters.educationSystemId);
+      clauses.push({ educationSystemId: new mongoose.Types.ObjectId(filters.educationSystemId) });
     }
     if (filters?.educationLevelId && mongoose.Types.ObjectId.isValid(filters.educationLevelId)) {
-      query.educationLevelId = new mongoose.Types.ObjectId(filters.educationLevelId);
+      clauses.push({ educationLevelId: new mongoose.Types.ObjectId(filters.educationLevelId) });
     }
-    const docs = await Model.find(query).sort({ examDate: 1, code: 1 }).lean();
+    const docs = await Model.find(clauses.length === 1 ? clauses[0]! : { $and: clauses })
+      .sort({ examDate: 1, code: 1 })
+      .lean();
     return docs.map(mapDocToExamination);
   }
 
@@ -569,10 +793,23 @@ export class MongooseCurriculumRepository implements CurriculumRepository {
   ): Promise<ExaminationRecord> {
     await this.ensureSeeded();
     const Model = getMongooseModel('examinations');
+    const { educationLevelId, subjectIds, ownerUserId, ...rest } = data;
     const created = await Model.create({
-      ...data,
+      ...rest,
+      scope: data.scope ?? 'global',
+      isArchived: data.isArchived ?? false,
       educationSystemId: new mongoose.Types.ObjectId(data.educationSystemId),
-      educationLevelId: new mongoose.Types.ObjectId(data.educationLevelId),
+      ...(toObjectIdIfValid(educationLevelId)
+        ? { educationLevelId: toObjectIdIfValid(educationLevelId) }
+        : {}),
+      ...(toObjectIdIfValid(ownerUserId) ? { ownerUserId: toObjectIdIfValid(ownerUserId) } : {}),
+      ...(Array.isArray(subjectIds)
+        ? {
+            subjectIds: subjectIds
+              .filter((sid) => mongoose.Types.ObjectId.isValid(sid))
+              .map((sid) => new mongoose.Types.ObjectId(sid)),
+          }
+        : {}),
     });
     return mapDocToExamination(created as unknown as Record<string, unknown>);
   }
@@ -588,8 +825,16 @@ export class MongooseCurriculumRepository implements CurriculumRepository {
     if (patch.educationSystemId) {
       payload.educationSystemId = new mongoose.Types.ObjectId(patch.educationSystemId);
     }
-    if (patch.educationLevelId) {
-      payload.educationLevelId = new mongoose.Types.ObjectId(patch.educationLevelId);
+    if (patch.educationLevelId !== undefined) {
+      payload.educationLevelId = toObjectIdIfValid(patch.educationLevelId);
+    }
+    if (patch.ownerUserId) {
+      payload.ownerUserId = toObjectIdIfValid(patch.ownerUserId);
+    }
+    if (patch.subjectIds) {
+      payload.subjectIds = patch.subjectIds
+        .filter((sid) => mongoose.Types.ObjectId.isValid(sid))
+        .map((sid) => new mongoose.Types.ObjectId(sid));
     }
     const updated = await Model.findByIdAndUpdate(id, { $set: payload }, { new: true }).lean();
     return updated ? mapDocToExamination(updated) : null;
@@ -603,26 +848,30 @@ export class MongooseCurriculumRepository implements CurriculumRepository {
     return res.deletedCount > 0;
   }
 
-  async listSubjects(filters?: {
-    educationSystemId?: string;
-    educationLevelId?: string;
-    examinationId?: string;
-    includeInactive?: boolean;
-  }): Promise<SubjectRecord[]> {
+  async listSubjects(
+    filters?: CurriculumVisibilityFilter & {
+      educationSystemId?: string;
+      educationLevelId?: string;
+      examinationId?: string;
+      includeInactive?: boolean;
+    },
+  ): Promise<SubjectRecord[]> {
     await this.ensureSeeded();
     const Model = getMongooseModel('subjects');
-    const query: Record<string, unknown> = {};
-    if (!filters?.includeInactive) query.isActive = true;
+    const clauses = buildMongoVisibilityClauses(filters);
+    if (!filters?.includeInactive) clauses.push({ isActive: true });
     if (filters?.educationSystemId && mongoose.Types.ObjectId.isValid(filters.educationSystemId)) {
-      query.educationSystemId = new mongoose.Types.ObjectId(filters.educationSystemId);
+      clauses.push({ educationSystemId: new mongoose.Types.ObjectId(filters.educationSystemId) });
     }
     if (filters?.educationLevelId && mongoose.Types.ObjectId.isValid(filters.educationLevelId)) {
-      query.educationLevelId = new mongoose.Types.ObjectId(filters.educationLevelId);
+      clauses.push({ educationLevelId: new mongoose.Types.ObjectId(filters.educationLevelId) });
     }
     if (filters?.examinationId && mongoose.Types.ObjectId.isValid(filters.examinationId)) {
-      query.examinationIds = new mongoose.Types.ObjectId(filters.examinationId);
+      clauses.push({ examinationIds: new mongoose.Types.ObjectId(filters.examinationId) });
     }
-    const docs = await Model.find(query).sort({ order: 1, code: 1 }).lean();
+    const docs = await Model.find(clauses.length === 1 ? clauses[0]! : { $and: clauses })
+      .sort({ order: 1, code: 1 })
+      .lean();
     return docs.map(mapDocToSubject);
   }
 
@@ -639,10 +888,16 @@ export class MongooseCurriculumRepository implements CurriculumRepository {
   ): Promise<SubjectRecord> {
     await this.ensureSeeded();
     const Model = getMongooseModel('subjects');
+    const { educationLevelId, ownerUserId, ...rest } = data;
     const created = await Model.create({
-      ...data,
+      ...rest,
+      scope: data.scope ?? 'global',
+      isArchived: data.isArchived ?? false,
       educationSystemId: new mongoose.Types.ObjectId(data.educationSystemId),
-      educationLevelId: new mongoose.Types.ObjectId(data.educationLevelId),
+      ...(toObjectIdIfValid(educationLevelId)
+        ? { educationLevelId: toObjectIdIfValid(educationLevelId) }
+        : {}),
+      ...(toObjectIdIfValid(ownerUserId) ? { ownerUserId: toObjectIdIfValid(ownerUserId) } : {}),
       examinationIds: data.examinationIds
         .filter((id) => mongoose.Types.ObjectId.isValid(id))
         .map((id) => new mongoose.Types.ObjectId(id)),
@@ -661,8 +916,11 @@ export class MongooseCurriculumRepository implements CurriculumRepository {
     if (patch.educationSystemId) {
       payload.educationSystemId = new mongoose.Types.ObjectId(patch.educationSystemId);
     }
-    if (patch.educationLevelId) {
-      payload.educationLevelId = new mongoose.Types.ObjectId(patch.educationLevelId);
+    if (patch.educationLevelId !== undefined) {
+      payload.educationLevelId = toObjectIdIfValid(patch.educationLevelId);
+    }
+    if (patch.ownerUserId) {
+      payload.ownerUserId = toObjectIdIfValid(patch.ownerUserId);
     }
     if (patch.examinationIds) {
       payload.examinationIds = patch.examinationIds
@@ -681,15 +939,21 @@ export class MongooseCurriculumRepository implements CurriculumRepository {
     return res.deletedCount > 0;
   }
 
-  async listChapters(subjectId?: string, includeInactive = false): Promise<ChapterRecord[]> {
+  async listChapters(
+    subjectId?: string,
+    includeInactive = false,
+    visibility?: CurriculumVisibilityFilter,
+  ): Promise<ChapterRecord[]> {
     await this.ensureSeeded();
     const Model = getMongooseModel('chapters');
-    const query: Record<string, unknown> = {};
-    if (!includeInactive) query.isActive = true;
+    const clauses = buildMongoVisibilityClauses(visibility);
+    if (!includeInactive) clauses.push({ isActive: true });
     if (subjectId && mongoose.Types.ObjectId.isValid(subjectId)) {
-      query.subjectId = new mongoose.Types.ObjectId(subjectId);
+      clauses.push({ subjectId: new mongoose.Types.ObjectId(subjectId) });
     }
-    const docs = await Model.find(query).sort({ order: 1, chapterNumber: 1 }).lean();
+    const docs = await Model.find(clauses.length === 1 ? clauses[0]! : { $and: clauses })
+      .sort({ order: 1, chapterNumber: 1 })
+      .lean();
     return docs.map(mapDocToChapter);
   }
 
@@ -708,6 +972,9 @@ export class MongooseCurriculumRepository implements CurriculumRepository {
     const Model = getMongooseModel('chapters');
     const created = await Model.create({
       ...data,
+      scope: data.scope ?? 'global',
+      isArchived: data.isArchived ?? false,
+      ...(data.ownerUserId ? { ownerUserId: toObjectIdIfValid(data.ownerUserId) } : {}),
       subjectId: new mongoose.Types.ObjectId(data.subjectId),
     });
     return mapDocToChapter(created as unknown as Record<string, unknown>);
@@ -724,6 +991,9 @@ export class MongooseCurriculumRepository implements CurriculumRepository {
     if (patch.subjectId) {
       payload.subjectId = new mongoose.Types.ObjectId(patch.subjectId);
     }
+    if (patch.ownerUserId) {
+      payload.ownerUserId = toObjectIdIfValid(patch.ownerUserId);
+    }
     const updated = await Model.findByIdAndUpdate(id, { $set: payload }, { new: true }).lean();
     return updated ? mapDocToChapter(updated) : null;
   }
@@ -739,33 +1009,36 @@ export class MongooseCurriculumRepository implements CurriculumRepository {
   async listTopics(filter: TopicQueryFilter): Promise<{ items: TopicRecord[]; total: number }> {
     await this.ensureSeeded();
     const Model = getMongooseModel('topics');
-    const query: Record<string, unknown> = {};
-    if (!filter.includeInactive) query.isActive = true;
+    const clauses = buildMongoVisibilityClauses(filter);
+    if (!filter.includeInactive) clauses.push({ isActive: true });
     if (filter.subjectId && mongoose.Types.ObjectId.isValid(filter.subjectId)) {
-      query.subjectId = new mongoose.Types.ObjectId(filter.subjectId);
+      clauses.push({ subjectId: new mongoose.Types.ObjectId(filter.subjectId) });
     }
     if (filter.chapterId && mongoose.Types.ObjectId.isValid(filter.chapterId)) {
-      query.chapterId = new mongoose.Types.ObjectId(filter.chapterId);
+      clauses.push({ chapterId: new mongoose.Types.ObjectId(filter.chapterId) });
     }
     if (filter.difficulty) {
-      query.difficulty = filter.difficulty;
+      clauses.push({ difficulty: filter.difficulty });
     }
     if (filter.topicIds) {
       const validIds = filter.topicIds
         .filter((id) => mongoose.Types.ObjectId.isValid(id))
         .map((id) => new mongoose.Types.ObjectId(id));
-      query._id = { $in: validIds };
+      clauses.push({ _id: { $in: validIds } });
     }
     if (filter.search?.trim()) {
       const escaped = filter.search.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      query.$or = [
-        { title: { $regex: escaped, $options: 'i' } },
-        { titleBn: { $regex: escaped, $options: 'i' } },
-        { description: { $regex: escaped, $options: 'i' } },
-        { code: { $regex: escaped, $options: 'i' } },
-      ];
+      clauses.push({
+        $or: [
+          { title: { $regex: escaped, $options: 'i' } },
+          { titleBn: { $regex: escaped, $options: 'i' } },
+          { description: { $regex: escaped, $options: 'i' } },
+          { code: { $regex: escaped, $options: 'i' } },
+        ],
+      });
     }
 
+    const query = clauses.length === 1 ? clauses[0]! : { $and: clauses };
     const skip = Math.max(0, (filter.page - 1) * filter.limit);
     const [docs, total] = await Promise.all([
       Model.find(query).sort({ order: 1, code: 1 }).skip(skip).limit(filter.limit).lean(),
@@ -792,6 +1065,9 @@ export class MongooseCurriculumRepository implements CurriculumRepository {
     const Model = getMongooseModel('topics');
     const created = await Model.create({
       ...data,
+      scope: data.scope ?? 'global',
+      isArchived: data.isArchived ?? false,
+      ...(data.ownerUserId ? { ownerUserId: toObjectIdIfValid(data.ownerUserId) } : {}),
       subjectId: new mongoose.Types.ObjectId(data.subjectId),
       chapterId: new mongoose.Types.ObjectId(data.chapterId),
       prerequisiteTopicIds: data.prerequisiteTopicIds
@@ -815,6 +1091,9 @@ export class MongooseCurriculumRepository implements CurriculumRepository {
     if (patch.chapterId) {
       payload.chapterId = new mongoose.Types.ObjectId(patch.chapterId);
     }
+    if (patch.ownerUserId) {
+      payload.ownerUserId = toObjectIdIfValid(patch.ownerUserId);
+    }
     if (patch.prerequisiteTopicIds) {
       payload.prerequisiteTopicIds = patch.prerequisiteTopicIds
         .filter((pid) => mongoose.Types.ObjectId.isValid(pid))
@@ -829,6 +1108,82 @@ export class MongooseCurriculumRepository implements CurriculumRepository {
     if (!mongoose.Types.ObjectId.isValid(id)) return false;
     const Model = getMongooseModel('topics');
     const res = await Model.deleteOne({ _id: new mongoose.Types.ObjectId(id) });
+    return res.deletedCount > 0;
+  }
+
+  async findLabelConfig(
+    userId: string,
+    educationSystemId?: string,
+  ): Promise<EducationLabelConfigRecord | null> {
+    if (!mongoose.Types.ObjectId.isValid(userId)) return null;
+    await connectToDatabase();
+    const Model = getMongooseModel('educationLabelConfigs');
+    const sysObjId = toObjectIdIfValid(educationSystemId);
+    if (sysObjId) {
+      const specific = await Model.findOne({
+        userId: new mongoose.Types.ObjectId(userId),
+        educationSystemId: sysObjId,
+      }).lean();
+      if (specific) return mapDocToLabelConfig(specific);
+    }
+    const fallback = await Model.findOne({
+      userId: new mongoose.Types.ObjectId(userId),
+      educationSystemId: null,
+    }).lean();
+    return fallback ? mapDocToLabelConfig(fallback) : null;
+  }
+
+  async listLabelConfigsByUser(userId: string): Promise<EducationLabelConfigRecord[]> {
+    if (!mongoose.Types.ObjectId.isValid(userId)) return [];
+    await connectToDatabase();
+    const Model = getMongooseModel('educationLabelConfigs');
+    const docs = await Model.find({ userId: new mongoose.Types.ObjectId(userId) })
+      .sort({ updatedAt: -1 })
+      .lean();
+    return docs.map(mapDocToLabelConfig);
+  }
+
+  async upsertLabelConfig(data: {
+    userId: string;
+    educationSystemId?: string;
+    presetName: string;
+    labels: EducationLabelDefinition[];
+  }): Promise<EducationLabelConfigRecord> {
+    if (!mongoose.Types.ObjectId.isValid(data.userId)) {
+      throw new Error('Valid userId is required for education label config');
+    }
+    await connectToDatabase();
+    const Model = getMongooseModel('educationLabelConfigs');
+    const sysObjId = toObjectIdIfValid(data.educationSystemId) ?? null;
+    const updated = await Model.findOneAndUpdate(
+      {
+        userId: new mongoose.Types.ObjectId(data.userId),
+        educationSystemId: sysObjId,
+      },
+      {
+        $set: {
+          presetName: data.presetName,
+          labels: data.labels,
+        },
+        $setOnInsert: {
+          userId: new mongoose.Types.ObjectId(data.userId),
+          educationSystemId: sysObjId,
+        },
+      },
+      { upsert: true, new: true },
+    ).lean();
+    return mapDocToLabelConfig(updated ?? {});
+  }
+
+  async deleteLabelConfig(userId: string, educationSystemId?: string): Promise<boolean> {
+    if (!mongoose.Types.ObjectId.isValid(userId)) return false;
+    await connectToDatabase();
+    const Model = getMongooseModel('educationLabelConfigs');
+    const sysObjId = toObjectIdIfValid(educationSystemId) ?? null;
+    const res = await Model.deleteOne({
+      userId: new mongoose.Types.ObjectId(userId),
+      educationSystemId: sysObjId,
+    });
     return res.deletedCount > 0;
   }
 
@@ -871,20 +1226,36 @@ export class InMemoryCurriculumRepository implements CurriculumRepository {
   private readonly subjects = new Map<string, SubjectRecord>();
   private readonly chapters = new Map<string, ChapterRecord>();
   private readonly topics = new Map<string, TopicRecord>();
+  private readonly labelConfigs = new Map<string, EducationLabelConfigRecord>();
   private readonly auditLogs: AuditLogRecord[] = [];
 
   constructor(seedWithDefaults = true) {
     if (seedWithDefaults) {
-      for (const s of INITIAL_EDUCATION_SYSTEMS) this.systems.set(s.id, { ...s });
-      for (const l of INITIAL_EDUCATION_LEVELS) this.levels.set(l.id, { ...l });
-      for (const e of INITIAL_EXAMINATIONS) this.examinations.set(e.id, { ...e });
-      for (const sub of INITIAL_SUBJECTS) {
-        this.subjects.set(sub.id, { ...sub, examinationIds: [...sub.examinationIds] });
+      for (const s of INITIAL_EDUCATION_SYSTEMS) {
+        this.systems.set(s.id, { ...s, scope: 'global', isArchived: false, educationType: 'standard' });
       }
-      for (const c of INITIAL_CHAPTERS) this.chapters.set(c.id, { ...c });
+      for (const l of INITIAL_EDUCATION_LEVELS) {
+        this.levels.set(l.id, { ...l, scope: 'global', isArchived: false });
+      }
+      for (const e of INITIAL_EXAMINATIONS) {
+        this.examinations.set(e.id, { ...e, scope: 'global', isArchived: false });
+      }
+      for (const sub of INITIAL_SUBJECTS) {
+        this.subjects.set(sub.id, {
+          ...sub,
+          scope: 'global',
+          isArchived: false,
+          examinationIds: [...sub.examinationIds],
+        });
+      }
+      for (const c of INITIAL_CHAPTERS) {
+        this.chapters.set(c.id, { ...c, scope: 'global', isArchived: false });
+      }
       for (const t of INITIAL_TOPICS) {
         this.topics.set(t.id, {
           ...t,
+          scope: 'global',
+          isArchived: false,
           learningObjectives: [...t.learningObjectives],
           prerequisiteTopicIds: [...t.prerequisiteTopicIds],
           keyConcepts: [...t.keyConcepts],
@@ -897,9 +1268,15 @@ export class InMemoryCurriculumRepository implements CurriculumRepository {
   async listEducationSystems(
     includeInactive = false,
     country?: string,
+    visibility?: CurriculumVisibilityFilter,
   ): Promise<EducationSystemRecord[]> {
     return Array.from(this.systems.values())
-      .filter((s) => (includeInactive || s.isActive) && (!country || s.country === country.toUpperCase()))
+      .filter(
+        (s) =>
+          (includeInactive || s.isActive) &&
+          (!country || s.country === country.toUpperCase()) &&
+          matchesInMemoryVisibility(s, visibility),
+      )
       .sort((a, b) => a.code.localeCompare(b.code))
       .map((s) => ({ ...s }));
   }
@@ -912,14 +1289,22 @@ export class InMemoryCurriculumRepository implements CurriculumRepository {
   async createEducationSystem(
     data: Omit<EducationSystemRecord, 'id' | 'createdAt' | 'updatedAt'>,
   ): Promise<EducationSystemRecord> {
+    const scope = data.scope ?? 'global';
     for (const existing of this.systems.values()) {
-      if (existing.code.toUpperCase() === data.code.toUpperCase()) {
+      if (
+        (existing.scope ?? 'global') === scope &&
+        existing.ownerUserId === data.ownerUserId &&
+        existing.code.toUpperCase() === data.code.toUpperCase()
+      ) {
         throw new Error(`Duplicate educationSystem code: ${data.code}`);
       }
     }
     const now = new Date();
     const record: EducationSystemRecord = {
       ...data,
+      scope,
+      isArchived: data.isArchived ?? false,
+      educationType: data.educationType ?? 'standard',
       id: generateHexObjectId(),
       createdAt: now,
       updatedAt: now,
@@ -950,12 +1335,14 @@ export class InMemoryCurriculumRepository implements CurriculumRepository {
   async listEducationLevels(
     educationSystemId?: string,
     includeInactive = false,
+    visibility?: CurriculumVisibilityFilter,
   ): Promise<EducationLevelRecord[]> {
     return Array.from(this.levels.values())
       .filter(
         (l) =>
           (includeInactive || l.isActive) &&
-          (!educationSystemId || l.educationSystemId === educationSystemId),
+          (!educationSystemId || l.educationSystemId === educationSystemId) &&
+          matchesInMemoryVisibility(l, visibility),
       )
       .sort((a, b) => a.order - b.order || a.code.localeCompare(b.code))
       .map((l) => ({ ...l }));
@@ -969,9 +1356,12 @@ export class InMemoryCurriculumRepository implements CurriculumRepository {
   async createEducationLevel(
     data: Omit<EducationLevelRecord, 'id' | 'createdAt' | 'updatedAt'>,
   ): Promise<EducationLevelRecord> {
+    const scope = data.scope ?? 'global';
     for (const existing of this.levels.values()) {
       if (
         existing.educationSystemId === data.educationSystemId &&
+        (existing.scope ?? 'global') === scope &&
+        existing.ownerUserId === data.ownerUserId &&
         existing.code.toUpperCase() === data.code.toUpperCase()
       ) {
         throw new Error(`Duplicate educationLevel code: ${data.code}`);
@@ -980,6 +1370,8 @@ export class InMemoryCurriculumRepository implements CurriculumRepository {
     const now = new Date();
     const record: EducationLevelRecord = {
       ...data,
+      scope,
+      isArchived: data.isArchived ?? false,
       id: generateHexObjectId(),
       createdAt: now,
       updatedAt: now,
@@ -1007,17 +1399,20 @@ export class InMemoryCurriculumRepository implements CurriculumRepository {
     return this.levels.delete(id);
   }
 
-  async listExaminations(filters?: {
-    educationSystemId?: string;
-    educationLevelId?: string;
-    includeInactive?: boolean;
-  }): Promise<ExaminationRecord[]> {
+  async listExaminations(
+    filters?: CurriculumVisibilityFilter & {
+      educationSystemId?: string;
+      educationLevelId?: string;
+      includeInactive?: boolean;
+    },
+  ): Promise<ExaminationRecord[]> {
     return Array.from(this.examinations.values())
       .filter(
         (e) =>
           (filters?.includeInactive || e.isActive) &&
           (!filters?.educationSystemId || e.educationSystemId === filters.educationSystemId) &&
-          (!filters?.educationLevelId || e.educationLevelId === filters.educationLevelId),
+          (!filters?.educationLevelId || e.educationLevelId === filters.educationLevelId) &&
+          matchesInMemoryVisibility(e, filters),
       )
       .sort((a, b) => a.code.localeCompare(b.code))
       .map((e) => ({ ...e }));
@@ -1031,9 +1426,22 @@ export class InMemoryCurriculumRepository implements CurriculumRepository {
   async createExamination(
     data: Omit<ExaminationRecord, 'id' | 'createdAt' | 'updatedAt'>,
   ): Promise<ExaminationRecord> {
+    const scope = data.scope ?? 'global';
+    for (const existing of this.examinations.values()) {
+      if (
+        existing.educationSystemId === data.educationSystemId &&
+        (existing.scope ?? 'global') === scope &&
+        existing.ownerUserId === data.ownerUserId &&
+        existing.code.toUpperCase() === data.code.toUpperCase()
+      ) {
+        throw new Error(`Duplicate examination code: ${data.code}`);
+      }
+    }
     const now = new Date();
     const record: ExaminationRecord = {
       ...data,
+      scope,
+      isArchived: data.isArchived ?? false,
       id: generateHexObjectId(),
       createdAt: now,
       updatedAt: now,
@@ -1061,19 +1469,22 @@ export class InMemoryCurriculumRepository implements CurriculumRepository {
     return this.examinations.delete(id);
   }
 
-  async listSubjects(filters?: {
-    educationSystemId?: string;
-    educationLevelId?: string;
-    examinationId?: string;
-    includeInactive?: boolean;
-  }): Promise<SubjectRecord[]> {
+  async listSubjects(
+    filters?: CurriculumVisibilityFilter & {
+      educationSystemId?: string;
+      educationLevelId?: string;
+      examinationId?: string;
+      includeInactive?: boolean;
+    },
+  ): Promise<SubjectRecord[]> {
     return Array.from(this.subjects.values())
       .filter(
         (s) =>
           (filters?.includeInactive || s.isActive) &&
           (!filters?.educationSystemId || s.educationSystemId === filters.educationSystemId) &&
           (!filters?.educationLevelId || s.educationLevelId === filters.educationLevelId) &&
-          (!filters?.examinationId || s.examinationIds.includes(filters.examinationId)),
+          (!filters?.examinationId || s.examinationIds.includes(filters.examinationId)) &&
+          matchesInMemoryVisibility(s, filters),
       )
       .sort((a, b) => a.order - b.order || a.code.localeCompare(b.code))
       .map((s) => ({ ...s, examinationIds: [...s.examinationIds] }));
@@ -1087,9 +1498,22 @@ export class InMemoryCurriculumRepository implements CurriculumRepository {
   async createSubject(
     data: Omit<SubjectRecord, 'id' | 'createdAt' | 'updatedAt'>,
   ): Promise<SubjectRecord> {
+    const scope = data.scope ?? 'global';
+    for (const existing of this.subjects.values()) {
+      if (
+        existing.educationSystemId === data.educationSystemId &&
+        (existing.scope ?? 'global') === scope &&
+        existing.ownerUserId === data.ownerUserId &&
+        existing.code.toUpperCase() === data.code.toUpperCase()
+      ) {
+        throw new Error(`Duplicate subject code: ${data.code}`);
+      }
+    }
     const now = new Date();
     const record: SubjectRecord = {
       ...data,
+      scope,
+      isArchived: data.isArchived ?? false,
       examinationIds: [...data.examinationIds],
       id: generateHexObjectId(),
       createdAt: now,
@@ -1119,10 +1543,17 @@ export class InMemoryCurriculumRepository implements CurriculumRepository {
     return this.subjects.delete(id);
   }
 
-  async listChapters(subjectId?: string, includeInactive = false): Promise<ChapterRecord[]> {
+  async listChapters(
+    subjectId?: string,
+    includeInactive = false,
+    visibility?: CurriculumVisibilityFilter,
+  ): Promise<ChapterRecord[]> {
     return Array.from(this.chapters.values())
       .filter(
-        (c) => (includeInactive || c.isActive) && (!subjectId || c.subjectId === subjectId),
+        (c) =>
+          (includeInactive || c.isActive) &&
+          (!subjectId || c.subjectId === subjectId) &&
+          matchesInMemoryVisibility(c, visibility),
       )
       .sort((a, b) => a.order - b.order || a.chapterNumber - b.chapterNumber)
       .map((c) => ({ ...c }));
@@ -1139,6 +1570,8 @@ export class InMemoryCurriculumRepository implements CurriculumRepository {
     const now = new Date();
     const record: ChapterRecord = {
       ...data,
+      scope: data.scope ?? 'global',
+      isArchived: data.isArchived ?? false,
       id: generateHexObjectId(),
       createdAt: now,
       updatedAt: now,
@@ -1167,7 +1600,9 @@ export class InMemoryCurriculumRepository implements CurriculumRepository {
   }
 
   async listTopics(filter: TopicQueryFilter): Promise<{ items: TopicRecord[]; total: number }> {
-    let all = Array.from(this.topics.values());
+    let all = Array.from(this.topics.values()).filter((t) =>
+      matchesInMemoryVisibility(t, filter),
+    );
     if (!filter.includeInactive) {
       all = all.filter((t) => t.isActive);
     }
@@ -1227,6 +1662,8 @@ export class InMemoryCurriculumRepository implements CurriculumRepository {
     const now = new Date();
     const record: TopicRecord = {
       ...data,
+      scope: data.scope ?? 'global',
+      isArchived: data.isArchived ?? false,
       learningObjectives: [...data.learningObjectives],
       prerequisiteTopicIds: [...data.prerequisiteTopicIds],
       keyConcepts: [...data.keyConcepts],
@@ -1266,6 +1703,54 @@ export class InMemoryCurriculumRepository implements CurriculumRepository {
 
   async deleteTopic(id: string): Promise<boolean> {
     return this.topics.delete(id);
+  }
+
+  private getLabelKey(userId: string, educationSystemId?: string): string {
+    return `${userId}:${educationSystemId ?? 'global_default'}`;
+  }
+
+  async findLabelConfig(
+    userId: string,
+    educationSystemId?: string,
+  ): Promise<EducationLabelConfigRecord | null> {
+    if (educationSystemId) {
+      const specific = this.labelConfigs.get(this.getLabelKey(userId, educationSystemId));
+      if (specific) return { ...specific, labels: specific.labels.map((l) => ({ ...l })) };
+    }
+    const fallback = this.labelConfigs.get(this.getLabelKey(userId, undefined));
+    return fallback ? { ...fallback, labels: fallback.labels.map((l) => ({ ...l })) } : null;
+  }
+
+  async listLabelConfigsByUser(userId: string): Promise<EducationLabelConfigRecord[]> {
+    return Array.from(this.labelConfigs.values())
+      .filter((c) => c.userId === userId)
+      .map((c) => ({ ...c, labels: c.labels.map((l) => ({ ...l })) }));
+  }
+
+  async upsertLabelConfig(data: {
+    userId: string;
+    educationSystemId?: string;
+    presetName: string;
+    labels: EducationLabelDefinition[];
+  }): Promise<EducationLabelConfigRecord> {
+    const key = this.getLabelKey(data.userId, data.educationSystemId);
+    const existing = this.labelConfigs.get(key);
+    const now = new Date();
+    const record: EducationLabelConfigRecord = {
+      id: existing?.id ?? generateHexObjectId(),
+      userId: data.userId,
+      educationSystemId: data.educationSystemId,
+      presetName: data.presetName,
+      labels: data.labels.map((l) => ({ ...l })),
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+    };
+    this.labelConfigs.set(key, record);
+    return { ...record, labels: record.labels.map((l) => ({ ...l })) };
+  }
+
+  async deleteLabelConfig(userId: string, educationSystemId?: string): Promise<boolean> {
+    return this.labelConfigs.delete(this.getLabelKey(userId, educationSystemId));
   }
 
   async recordAuditLog(entry: {

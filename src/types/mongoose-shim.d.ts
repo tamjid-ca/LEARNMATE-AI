@@ -54,7 +54,11 @@ export interface QueryExec<R> extends Promise<R> {
 
 export interface Model<T = Record<string, unknown>> {
   modelName: string;
-  collection: { name: string };
+  collection: {
+    name: string;
+    indexes(): Promise<Array<{ name?: string; key?: Record<string, unknown>; unique?: boolean }>>;
+    dropIndex(name: string): Promise<unknown>;
+  };
   schema: Schema<T>;
   create(doc: Partial<T> | Array<Partial<T>>): Promise<T>;
   find(filter?: Record<string, unknown>): QueryExec<T[]>;
@@ -70,6 +74,10 @@ export interface Model<T = Record<string, unknown>> {
     update: Record<string, unknown>,
     options?: { new?: boolean; upsert?: boolean },
   ): QueryExec<T | null>;
+  updateMany(
+    filter: Record<string, unknown>,
+    update: Record<string, unknown>,
+  ): Promise<{ modifiedCount: number; matchedCount?: number }>;
   deleteOne(filter: Record<string, unknown>): Promise<{ deletedCount: number }>;
   deleteMany(filter: Record<string, unknown>): Promise<{ deletedCount: number }>;
   countDocuments(filter?: Record<string, unknown>): Promise<number>;

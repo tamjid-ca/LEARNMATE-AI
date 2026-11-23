@@ -3,6 +3,7 @@
  * Implements SRS Section 4.3 (FR-CUR-001..009) and Section 4.12 (FR-ADMIN-001..004, FR-ADMIN-011).
  */
 
+import type { EducationLabelDefinition } from '../../config/education-presets.ts';
 import { AppError } from '../../lib/api/errors.ts';
 import { buildPaginationMeta, type PaginationMeta } from '../../lib/api/response.ts';
 import {
@@ -32,6 +33,10 @@ import {
   getActiveCurriculumRepository,
   type CurriculumRepository,
 } from './curriculum-repository.ts';
+import {
+  assertCurriculumRecordReadable,
+  getResolvedLabelsForUser,
+} from './custom-education-service.ts';
 import type {
   AuditLogRecord,
   ChapterRecord,
@@ -50,6 +55,8 @@ export interface CurriculumHierarchyResponse {
   chapters: ChapterRecord[];
   topics: TopicRecord[];
   savedTopicIds: string[];
+  labels: EducationLabelDefinition[];
+  hierarchyPreview: string;
   meta: PaginationMeta;
 }
 
@@ -69,26 +76,32 @@ export async function browseCurriculumHierarchy(
   const allowInactive = Boolean(
     query.includeInactive && hasPermission(verified.role, 'curriculum:write'),
   );
+  const visibility = { viewerUserId: verified.userId, scopeFilter: 'all' as const };
 
   const user = await userRepo.findById(verified.userId);
   const savedTopicIds = user?.savedTopicIds ?? [];
+  const labelContextSystemId = query.educationSystemId || user?.educationSystemId;
 
-  const [educationSystems, educationLevels, examinations, subjects, chapters] = await Promise.all([
-    curriculumRepo.listEducationSystems(allowInactive, query.country),
-    curriculumRepo.listEducationLevels(query.educationSystemId, allowInactive),
-    curriculumRepo.listExaminations({
-      educationSystemId: query.educationSystemId,
-      educationLevelId: query.educationLevelId,
-      includeInactive: allowInactive,
-    }),
-    curriculumRepo.listSubjects({
-      educationSystemId: query.educationSystemId,
-      educationLevelId: query.educationLevelId,
-      examinationId: query.examinationId,
-      includeInactive: allowInactive,
-    }),
-    curriculumRepo.listChapters(query.subjectId, allowInactive),
-  ]);
+  const [educationSystems, educationLevels, examinations, subjects, chapters, labelInfo] =
+    await Promise.all([
+      curriculumRepo.listEducationSystems(allowInactive, query.country, visibility),
+      curriculumRepo.listEducationLevels(query.educationSystemId, allowInactive, visibility),
+      curriculumRepo.listExaminations({
+        educationSystemId: query.educationSystemId,
+        educationLevelId: query.educationLevelId,
+        includeInactive: allowInactive,
+        ...visibility,
+      }),
+      curriculumRepo.listSubjects({
+        educationSystemId: query.educationSystemId,
+        educationLevelId: query.educationLevelId,
+        examinationId: query.examinationId,
+        includeInactive: allowInactive,
+        ...visibility,
+      }),
+      curriculumRepo.listChapters(query.subjectId, allowInactive, visibility),
+      getResolvedLabelsForUser(verified.userId, labelContextSystemId, curriculumRepo),
+    ]);
 
   const topicResult = await curriculumRepo.listTopics({
     subjectId: query.subjectId,
@@ -99,6 +112,7 @@ export async function browseCurriculumHierarchy(
     includeInactive: allowInactive,
     page: query.page,
     limit: query.limit,
+    ...visibility,
   });
 
   return {
@@ -109,6 +123,8 @@ export async function browseCurriculumHierarchy(
     chapters,
     topics: topicResult.items,
     savedTopicIds,
+    labels: labelInfo.labels,
+    hierarchyPreview: labelInfo.hierarchyPreview,
     meta: buildPaginationMeta(query.page, query.limit, topicResult.total),
   };
 }
@@ -140,6 +156,8 @@ export async function listTopicsForUser(
     includeInactive: allowInactive,
     page: query.page,
     limit: query.limit,
+    viewerUserId: verified.userId,
+    scopeFilter: 'all',
   });
 
   return {
@@ -163,6 +181,7 @@ export async function getTopicDetailForUser(
 }> {
   const verified = requireAuth(actor);
   const topic = await curriculumRepo.findTopicById(topicId);
+  assertCurriculumRecordReadable(topic, verified, 'Topic');
   if (!topic || (!topic.isActive && !hasPermission(verified.role, 'curriculum:write'))) {
     throw AppError.notFound('Topic');
   }
@@ -176,7 +195,9 @@ export async function getTopicDetailForUser(
   const prerequisites: TopicRecord[] = [];
   for (const prereqId of topic.prerequisiteTopicIds) {
     const found = await curriculumRepo.findTopicById(prereqId);
-    if (found) prerequisites.push(found);
+    if (found && ((found.scope ?? 'global') === 'global' || found.ownerUserId === verified.userId)) {
+      prerequisites.push(found);
+    }
   }
 
   return {
@@ -205,6 +226,8 @@ export async function getSavedTopicsForStudent(
     topicIds: user.savedTopicIds,
     page: 1,
     limit: 100,
+    viewerUserId: verified.userId,
+    scopeFilter: 'all',
   });
   return {
     savedTopicIds: user.savedTopicIds,
@@ -225,6 +248,7 @@ export async function toggleSavedTopicForStudent(
   }
 
   const topic = await curriculumRepo.findTopicById(parsed.data.topicId);
+  assertCurriculumRecordReadable(topic, verified, 'Topic');
   if (!topic || !topic.isActive) {
     throw AppError.notFound('Topic');
   }
@@ -277,14 +301,15 @@ export async function getAdminCurriculumSnapshot(
 }> {
   requirePermission(actor, 'curriculum:write');
 
+  const globalOnly = { scopeFilter: 'global' as const, includeArchived: true };
   const [educationSystems, educationLevels, examinations, subjects, chapters, topicRes, auditLogs] =
     await Promise.all([
-      curriculumRepo.listEducationSystems(true),
-      curriculumRepo.listEducationLevels(undefined, true),
-      curriculumRepo.listExaminations({ includeInactive: true }),
-      curriculumRepo.listSubjects({ includeInactive: true }),
-      curriculumRepo.listChapters(undefined, true),
-      curriculumRepo.listTopics({ includeInactive: true, page: 1, limit: 100 }),
+      curriculumRepo.listEducationSystems(true, undefined, globalOnly),
+      curriculumRepo.listEducationLevels(undefined, true, globalOnly),
+      curriculumRepo.listExaminations({ includeInactive: true, ...globalOnly }),
+      curriculumRepo.listSubjects({ includeInactive: true, ...globalOnly }),
+      curriculumRepo.listChapters(undefined, true, globalOnly),
+      curriculumRepo.listTopics({ includeInactive: true, page: 1, limit: 100, ...globalOnly }),
       curriculumRepo.listAuditLogs(40),
     ]);
 
@@ -584,14 +609,15 @@ export async function exportCurriculumData(
 }> {
   requirePermission(actor, 'curriculum:write');
 
+  const globalOnly = { scopeFilter: 'global' as const, includeArchived: true };
   const [educationSystems, educationLevels, examinations, subjects, chapters, topicRes] =
     await Promise.all([
-      curriculumRepo.listEducationSystems(true),
-      curriculumRepo.listEducationLevels(undefined, true),
-      curriculumRepo.listExaminations({ includeInactive: true }),
-      curriculumRepo.listSubjects({ includeInactive: true }),
-      curriculumRepo.listChapters(undefined, true),
-      curriculumRepo.listTopics({ includeInactive: true, page: 1, limit: 500 }),
+      curriculumRepo.listEducationSystems(true, undefined, globalOnly),
+      curriculumRepo.listEducationLevels(undefined, true, globalOnly),
+      curriculumRepo.listExaminations({ includeInactive: true, ...globalOnly }),
+      curriculumRepo.listSubjects({ includeInactive: true, ...globalOnly }),
+      curriculumRepo.listChapters(undefined, true, globalOnly),
+      curriculumRepo.listTopics({ includeInactive: true, page: 1, limit: 500, ...globalOnly }),
     ]);
 
   const exportedAt = new Date().toISOString();

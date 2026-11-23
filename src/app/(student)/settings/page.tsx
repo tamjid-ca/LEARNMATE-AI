@@ -143,7 +143,16 @@ export default function StudentSettingsPage() {
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <Link href="/settings/education">
+            <Button variant="default" size="sm">
+              <span>
+                {language === 'bn'
+                  ? 'কাস্টম শিক্ষা ব্যবস্থা ও লেবেল'
+                  : 'Custom Education & Labels'}
+              </span>
+            </Button>
+          </Link>
           <Link href="/onboarding">
             <Button variant="outline" size="sm">
               <UserCog className="size-4" />

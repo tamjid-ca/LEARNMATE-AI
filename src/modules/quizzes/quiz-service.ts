@@ -33,6 +33,7 @@ import {
   getActiveCurriculumRepository,
   type CurriculumRepository,
 } from '../curriculum/curriculum-repository.ts';
+import { assertCurriculumRecordReadable } from '../curriculum/custom-education-service.ts';
 import type { TopicRecord } from '../curriculum/seed-data.ts';
 import {
   getActiveTutorMaterialsRepository,
@@ -120,6 +121,7 @@ export async function generateQuizForStudent(
   for (const topicId of data.topicIds) {
     const t = await curriculumRepo.findTopicById(topicId);
     if (t) {
+      assertCurriculumRecordReadable(t, verified, 'Topic');
       resolvedTopics.push(t);
       if (!effectiveChapterId) effectiveChapterId = t.chapterId;
       if (!effectiveSubjectId) effectiveSubjectId = t.subjectId;
@@ -127,15 +129,23 @@ export async function generateQuizForStudent(
   }
 
   if (resolvedTopics.length === 0 && effectiveChapterId) {
+    const chap = await curriculumRepo.findChapterById(effectiveChapterId);
+    if (chap) assertCurriculumRecordReadable(chap, verified, 'Chapter');
     const chapterTopics = await curriculumRepo.listTopics({
       chapterId: effectiveChapterId,
+      viewerUserId: verified.userId,
+      scopeFilter: 'all',
       page: 1,
       limit: 10,
     });
     resolvedTopics.push(...chapterTopics.items);
   } else if (resolvedTopics.length === 0 && effectiveSubjectId) {
+    const subj = await curriculumRepo.findSubjectById(effectiveSubjectId);
+    if (subj) assertCurriculumRecordReadable(subj, verified, 'Subject');
     const subjectTopics = await curriculumRepo.listTopics({
       subjectId: effectiveSubjectId,
+      viewerUserId: verified.userId,
+      scopeFilter: 'all',
       page: 1,
       limit: 10,
     });
@@ -162,6 +172,8 @@ export async function generateQuizForStudent(
     effectiveSubjectId ? curriculumRepo.findSubjectById(effectiveSubjectId) : Promise.resolve(null),
     effectiveChapterId ? curriculumRepo.findChapterById(effectiveChapterId) : Promise.resolve(null),
   ]);
+  if (subject) assertCurriculumRecordReadable(subject, verified, 'Subject');
+  if (chapter) assertCurriculumRecordReadable(chapter, verified, 'Chapter');
 
   const topicTitles =
     resolvedTopics.length > 0

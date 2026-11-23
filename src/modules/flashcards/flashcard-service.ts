@@ -33,6 +33,7 @@ import {
   getActiveCurriculumRepository,
   type CurriculumRepository,
 } from '../curriculum/curriculum-repository.ts';
+import { assertCurriculumRecordReadable } from '../curriculum/custom-education-service.ts';
 import {
   getActiveTutorMaterialsRepository,
   type TutorMaterialsRepository,
@@ -213,6 +214,7 @@ export async function createManualDeckForStudent(
   actor: AuthenticatedActor | null | undefined,
   rawInput: unknown,
   repo: FlashcardRepository = getActiveFlashcardRepository(),
+  curriculumRepo: CurriculumRepository = getActiveCurriculumRepository(),
 ): Promise<{
   deck: FlashcardDeckRecord;
   cards: FlashcardRecord[];
@@ -224,6 +226,18 @@ export async function createManualDeckForStudent(
   }
 
   const data = parsed.data;
+  if (data.subjectId) {
+    const subj = await curriculumRepo.findSubjectById(data.subjectId);
+    if (subj) assertCurriculumRecordReadable(subj, verified, 'Subject');
+  }
+  if (data.chapterId) {
+    const chap = await curriculumRepo.findChapterById(data.chapterId);
+    if (chap) assertCurriculumRecordReadable(chap, verified, 'Chapter');
+  }
+  if (data.topicId) {
+    const top = await curriculumRepo.findTopicById(data.topicId);
+    if (top) assertCurriculumRecordReadable(top, verified, 'Topic');
+  }
   const now = new Date();
   const deck = await repo.createDeck({
     userId: verified.userId,
@@ -289,6 +303,7 @@ export async function generateAIFlashcardsForStudent(
     : existingDeck?.topicId
       ? await curriculumRepo.findTopicById(existingDeck.topicId)
       : null;
+  if (topic) assertCurriculumRecordReadable(topic, verified, 'Topic');
 
   const effectiveChapterId = topic?.chapterId ?? data.chapterId ?? existingDeck?.chapterId;
   const effectiveSubjectId = topic?.subjectId ?? data.subjectId ?? existingDeck?.subjectId;
@@ -297,6 +312,8 @@ export async function generateAIFlashcardsForStudent(
     effectiveChapterId ? curriculumRepo.findChapterById(effectiveChapterId) : Promise.resolve(null),
     effectiveSubjectId ? curriculumRepo.findSubjectById(effectiveSubjectId) : Promise.resolve(null),
   ]);
+  if (chapter) assertCurriculumRecordReadable(chapter, verified, 'Chapter');
+  if (subject) assertCurriculumRecordReadable(subject, verified, 'Subject');
 
   let sourceNotesText = '';
   if (data.generatedContentId) {
