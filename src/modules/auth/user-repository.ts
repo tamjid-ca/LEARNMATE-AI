@@ -20,6 +20,9 @@ export interface NotificationPreferences {
   dueFlashcards: boolean;
   upcomingExams: boolean;
   learningMilestones: boolean;
+  quizUpdates?: boolean;
+  aiAndDocuments?: boolean;
+  systemAlerts?: boolean;
 }
 
 export interface OnboardingMetadata {
@@ -124,6 +127,9 @@ const DEFAULT_NOTIFICATION_PREFS: NotificationPreferences = {
   dueFlashcards: true,
   upcomingExams: true,
   learningMilestones: true,
+  quizUpdates: true,
+  aiAndDocuments: true,
+  systemAlerts: true,
 };
 
 function mapMongoDocToUserRecord(doc: Record<string, unknown>): UserRecord {
@@ -166,6 +172,9 @@ function mapMongoDocToUserRecord(doc: Record<string, unknown>): UserRecord {
       upcomingExams: rawNotif.upcomingExams ?? DEFAULT_NOTIFICATION_PREFS.upcomingExams,
       learningMilestones:
         rawNotif.learningMilestones ?? DEFAULT_NOTIFICATION_PREFS.learningMilestones,
+      quizUpdates: rawNotif.quizUpdates ?? true,
+      aiAndDocuments: rawNotif.aiAndDocuments ?? true,
+      systemAlerts: rawNotif.systemAlerts ?? true,
     },
     onboardingMeta: rawNotif.onboardingMeta,
     createdAt: doc.createdAt ? new Date(String(doc.createdAt)) : new Date(),

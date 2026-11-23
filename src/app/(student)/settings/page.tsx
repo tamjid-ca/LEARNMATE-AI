@@ -13,6 +13,8 @@ import {
   UserCog,
 } from 'lucide-react';
 import { useUIPreferences } from '@/components/providers/app-providers';
+import { ConfirmDialog } from '@/components/shared/confirm-dialog';
+import { notify } from '@/lib/ui/toast';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -87,17 +89,21 @@ export default function StudentSettingsPage() {
       });
       const payload = await res.json();
       if (!res.ok || !payload.success) {
-        setError(payload?.error?.message ?? 'Unable to update profile');
+        const message = payload?.error?.message ?? 'Unable to update profile';
+        setError(message);
+        notify.error(message);
         return;
       }
       setLanguage(preferredLanguage);
-      setStatusMessage(
+      const savedText =
         preferredLanguage === 'bn'
           ? 'প্রোফাইল এবং সেটিংস সফলভাবে সংরক্ষিত হয়েছে।'
-          : 'Profile and study settings saved.',
-      );
-    } catch {
+          : 'Profile and study settings saved.';
+      setStatusMessage(savedText);
+      notify.success(savedText);
+    } catch (err) {
       setError('Network error while updating settings.');
+      notify.error(err, 'Network error while updating settings.');
     } finally {
       setSaving(false);
     }
@@ -105,6 +111,7 @@ export default function StudentSettingsPage() {
 
   async function handleSignOut() {
     await fetch('/api/v1/auth/logout', { method: 'POST' });
+    notify.info(language === 'bn' ? 'সাইন আউট সম্পন্ন হয়েছে।' : 'Signed out.');
     router.push('/login');
     router.refresh();
   }
@@ -116,13 +123,19 @@ export default function StudentSettingsPage() {
       const res = await fetch('/api/v1/users/profile', { method: 'DELETE' });
       const payload = await res.json();
       if (!res.ok || !payload.success) {
-        setError(payload?.error?.message ?? 'Unable to delete account');
+        const message = payload?.error?.message ?? 'Unable to delete account';
+        setError(message);
+        notify.error(message);
         return;
       }
+      notify.success(
+        language === 'bn' ? 'অ্যাকাউন্ট স্থায়ীভাবে মুছে ফেলা হয়েছে।' : 'Account permanently deleted.',
+      );
       router.push('/register');
       router.refresh();
-    } catch {
+    } catch (err) {
       setError('Network error while deleting account.');
+      notify.error(err, 'Network error while deleting account.');
     } finally {
       setDeleting(false);
     }
@@ -307,19 +320,35 @@ export default function StudentSettingsPage() {
           </CardDescription>
         </CardHeader>
         <CardFooter>
-          <Button
-            variant="destructive"
-            size="sm"
-            disabled={deleting}
-            onClick={handleDeleteAccount}
-          >
-            {deleting ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
-            <span>
-              {language === 'bn'
-                ? 'আমার অ্যাকাউন্ট স্থায়ীভাবে মুছে ফেলুন'
-                : 'Delete My Account & Data'}
-            </span>
-          </Button>
+          <ConfirmDialog
+            destructive
+            busy={deleting}
+            title={
+              language === 'bn'
+                ? 'অ্যাকাউন্ট স্থায়ীভাবে মুছে ফেলবেন?'
+                : 'Delete account and all study data?'
+            }
+            description={
+              language === 'bn'
+                ? 'এটি পুনরুদ্ধার করা যাবে না। আপনার সমস্ত নোট, কুইজ, ফ্ল্যাশকার্ড এবং ডকুমেন্ট মুছে যাবে।'
+                : 'This action cannot be undone. All notes, conversations, quizzes, flashcards, study plans, and uploaded documents will be permanently removed.'
+            }
+            confirmLabel={
+              language === 'bn' ? 'হ্যাঁ, স্থায়ীভাবে মুছুন' : 'Yes, Delete Permanently'
+            }
+            cancelLabel={language === 'bn' ? 'বাতিল করুন' : 'Cancel'}
+            onConfirm={handleDeleteAccount}
+            trigger={
+              <Button variant="destructive" size="sm" disabled={deleting}>
+                {deleting ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
+                <span>
+                  {language === 'bn'
+                    ? 'আমার অ্যাকাউন্ট স্থায়ীভাবে মুছে ফেলুন'
+                    : 'Delete My Account & Data'}
+                </span>
+              </Button>
+            }
+          />
         </CardFooter>
       </Card>
     </div>

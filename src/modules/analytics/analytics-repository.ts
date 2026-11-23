@@ -70,6 +70,22 @@ export interface CreateNotificationInput {
   dedupeKey?: string;
 }
 
+export interface NotificationPageQuery {
+  status?: 'all' | 'unread' | 'read';
+  types?: NotificationType[];
+  page: number;
+  limit: number;
+}
+
+export interface NotificationPageResult {
+  items: NotificationRecord[];
+  total: number;
+  unreadCount: number;
+  readCount: number;
+  totalAllCount: number;
+  typeCounts: Record<string, number>;
+}
+
 export interface AnalyticsRepository {
   // Progress Records
   listProgressByUser(userId: string): Promise<ProgressRecord[]>;
@@ -78,10 +94,17 @@ export interface AnalyticsRepository {
 
   // Notifications
   listNotificationsByUser(userId: string, limit?: number): Promise<NotificationRecord[]>;
+  listNotificationsPaginated(
+    userId: string,
+    query: NotificationPageQuery,
+  ): Promise<NotificationPageResult>;
   findNotificationById(id: string): Promise<NotificationRecord | null>;
   createNotificationIfNotExists(input: CreateNotificationInput): Promise<NotificationRecord>;
   markNotificationRead(id: string, userId: string): Promise<NotificationRecord | null>;
+  markNotificationUnread(id: string, userId: string): Promise<NotificationRecord | null>;
   markAllNotificationsRead(userId: string): Promise<number>;
+  deleteNotification(id: string, userId: string): Promise<boolean>;
+  deleteReadNotifications(userId: string): Promise<number>;
 }
 
 function generateHexId(): string {
@@ -275,6 +298,96 @@ export class MongooseAnalyticsRepository implements AnalyticsRepository {
     );
     return unreadDocs.length;
   }
+
+  async listNotificationsPaginated(
+    userId: string,
+    query: NotificationPageQuery,
+  ): Promise<NotificationPageResult> {
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return {
+        items: [],
+        total: 0,
+        unreadCount: 0,
+        readCount: 0,
+        totalAllCount: 0,
+        typeCounts: {},
+      };
+    }
+    await connectToDatabase();
+    const Model = getMongooseModel('notifications');
+    const userObjId = new mongoose.Types.ObjectId(userId);
+
+    const mongoFilter: Record<string, unknown> = { userId: userObjId };
+    if (query.status === 'unread') mongoFilter.isRead = false;
+    if (query.status === 'read') mongoFilter.isRead = true;
+    if (query.types && query.types.length > 0) {
+      mongoFilter.notificationType = { $in: query.types };
+    }
+
+    const skip = Math.max(0, (query.page - 1) * query.limit);
+    const [filteredDocs, total, allUserDocs] = await Promise.all([
+      Model.find(mongoFilter).sort({ createdAt: -1 }).skip(skip).limit(query.limit).lean(),
+      Model.countDocuments(mongoFilter),
+      Model.find({ userId: userObjId }).select({ isRead: 1, notificationType: 1 }).lean(),
+    ]);
+
+    let unreadCount = 0;
+    const typeCounts: Record<string, number> = {};
+    for (const d of allUserDocs) {
+      if (!d.isRead) unreadCount += 1;
+      const t = String(d.notificationType ?? 'study_reminder');
+      typeCounts[t] = (typeCounts[t] ?? 0) + 1;
+    }
+    const totalAllCount = allUserDocs.length;
+    const readCount = Math.max(0, totalAllCount - unreadCount);
+
+    return {
+      items: filteredDocs.map((d) => mapDocToNotification(d)),
+      total,
+      unreadCount,
+      readCount,
+      totalAllCount,
+      typeCounts,
+    };
+  }
+
+  async markNotificationUnread(id: string, userId: string): Promise<NotificationRecord | null> {
+    if (!mongoose.Types.ObjectId.isValid(id) || !mongoose.Types.ObjectId.isValid(userId)) {
+      return null;
+    }
+    await connectToDatabase();
+    const Model = getMongooseModel('notifications');
+    const updated = await Model.findOneAndUpdate(
+      { _id: new mongoose.Types.ObjectId(id), userId: new mongoose.Types.ObjectId(userId) },
+      { $set: { isRead: false, readAt: null } },
+      { new: true },
+    ).lean();
+    return updated ? mapDocToNotification(updated) : null;
+  }
+
+  async deleteNotification(id: string, userId: string): Promise<boolean> {
+    if (!mongoose.Types.ObjectId.isValid(id) || !mongoose.Types.ObjectId.isValid(userId)) {
+      return false;
+    }
+    await connectToDatabase();
+    const Model = getMongooseModel('notifications');
+    const res = await Model.deleteOne({
+      _id: new mongoose.Types.ObjectId(id),
+      userId: new mongoose.Types.ObjectId(userId),
+    });
+    return res.deletedCount > 0;
+  }
+
+  async deleteReadNotifications(userId: string): Promise<number> {
+    if (!mongoose.Types.ObjectId.isValid(userId)) return 0;
+    await connectToDatabase();
+    const Model = getMongooseModel('notifications');
+    const res = await Model.deleteMany({
+      userId: new mongoose.Types.ObjectId(userId),
+      isRead: true,
+    });
+    return res.deletedCount;
+  }
 }
 
 export class InMemoryAnalyticsRepository implements AnalyticsRepository {
@@ -386,6 +499,75 @@ export class InMemoryAnalyticsRepository implements AnalyticsRepository {
           readAt: now,
           updatedAt: now,
         });
+        count += 1;
+      }
+    }
+    return count;
+  }
+
+  async listNotificationsPaginated(
+    userId: string,
+    query: NotificationPageQuery,
+  ): Promise<NotificationPageResult> {
+    const allUser = Array.from(this.notificationStore.values())
+      .filter((n) => n.userId === userId)
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+
+    let unreadCount = 0;
+    const typeCounts: Record<string, number> = {};
+    for (const n of allUser) {
+      if (!n.isRead) unreadCount += 1;
+      typeCounts[n.notificationType] = (typeCounts[n.notificationType] ?? 0) + 1;
+    }
+    const totalAllCount = allUser.length;
+    const readCount = Math.max(0, totalAllCount - unreadCount);
+
+    let filtered = allUser;
+    if (query.status === 'unread') filtered = filtered.filter((n) => !n.isRead);
+    if (query.status === 'read') filtered = filtered.filter((n) => n.isRead);
+    if (query.types && query.types.length > 0) {
+      const set = new Set(query.types);
+      filtered = filtered.filter((n) => set.has(n.notificationType));
+    }
+
+    const total = filtered.length;
+    const skip = Math.max(0, (query.page - 1) * query.limit);
+    const items = filtered.slice(skip, skip + query.limit).map((n) => ({ ...n }));
+
+    return {
+      items,
+      total,
+      unreadCount,
+      readCount,
+      totalAllCount,
+      typeCounts,
+    };
+  }
+
+  async markNotificationUnread(id: string, userId: string): Promise<NotificationRecord | null> {
+    const existing = this.notificationStore.get(id);
+    if (!existing || existing.userId !== userId) return null;
+    const updated: NotificationRecord = {
+      ...existing,
+      isRead: false,
+      readAt: undefined,
+      updatedAt: new Date(),
+    };
+    this.notificationStore.set(id, updated);
+    return { ...updated };
+  }
+
+  async deleteNotification(id: string, userId: string): Promise<boolean> {
+    const existing = this.notificationStore.get(id);
+    if (!existing || existing.userId !== userId) return false;
+    return this.notificationStore.delete(id);
+  }
+
+  async deleteReadNotifications(userId: string): Promise<number> {
+    let count = 0;
+    for (const [id, record] of this.notificationStore.entries()) {
+      if (record.userId === userId && record.isRead) {
+        this.notificationStore.delete(id);
         count += 1;
       }
     }

@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import { ThemeProvider as NextThemesProvider } from 'next-themes';
+import { Toaster } from '@/components/ui/sonner';
 import type { SupportedLanguage } from '@/types/domain';
 
 interface UIPreferencesContextValue {
@@ -80,7 +81,10 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
       enableSystem
       disableTransitionOnChange
     >
-      <UIPreferencesContext.Provider value={value}>{children}</UIPreferencesContext.Provider>
+      <UIPreferencesContext.Provider value={value}>
+        {children}
+        <Toaster position="bottom-right" richColors closeButton />
+      </UIPreferencesContext.Provider>
     </NextThemesProvider>
   );
 }

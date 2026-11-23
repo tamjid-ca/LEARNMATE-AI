@@ -120,8 +120,22 @@ export const NOTIFICATION_TYPES = [
   'upcoming_exam',
   'missed_task',
   'learning_milestone',
+  'quiz_exam',
+  'ai_generation',
+  'document_processing',
+  'system',
 ] as const;
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
+
+export const NOTIFICATION_CATEGORIES = [
+  'all',
+  'study',
+  'quiz_exam',
+  'flashcards',
+  'ai_documents',
+  'system',
+] as const;
+export type NotificationCategory = (typeof NOTIFICATION_CATEGORIES)[number];
 
 export const AI_TASK_TYPES = [
   'tutor',

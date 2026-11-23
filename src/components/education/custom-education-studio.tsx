@@ -24,6 +24,8 @@ import {
   Tags,
   Trash2,
 } from 'lucide-react';
+import { ConfirmDialog } from '@/components/shared/confirm-dialog';
+import { notify } from '@/lib/ui/toast';
 import {
   buildHierarchyPreview,
   cloneDefaultLabels,
@@ -142,6 +144,11 @@ export function CustomEducationStudio() {
   const [saving, setSaving] = React.useState(false);
   const [statusMessage, setStatusMessage] = React.useState<string | null>(null);
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null);
+  const [pendingDelete, setPendingDelete] = React.useState<{
+    kind: 'system' | 'exam' | 'subject';
+    id: string;
+    label: string;
+  } | null>(null);
 
   // System builder state
   const [editingSystemId, setEditingSystemId] = React.useState<string | null>(null);
@@ -239,6 +246,18 @@ export function CustomEducationStudio() {
   function notifySuccess(msg: string) {
     setErrorMessage(null);
     setStatusMessage(msg);
+    notify.success(msg);
+  }
+
+  React.useEffect(() => {
+    if (errorMessage) {
+      notify.error(errorMessage);
+    }
+  }, [errorMessage]);
+
+  function showStudioError(msg: string) {
+    setErrorMessage(msg);
+    notify.error(msg);
   }
 
   async function handleSetActiveSystem(educationSystemId: string) {
@@ -252,7 +271,7 @@ export function CustomEducationStudio() {
       });
       const json = await res.json();
       if (!res.ok || !json.success) {
-        setErrorMessage(json.error?.message ?? 'Could not activate system');
+        showStudioError(json.error?.message ?? 'Could not activate system');
         return;
       }
       notifySuccess('Active education system updated across your workspace.');
@@ -846,7 +865,9 @@ export function CustomEducationStudio() {
                               size="sm"
                               variant="ghost"
                               disabled={saving}
-                              onClick={() => void handleDeleteSystem(sys.id, true)}
+                              onClick={() =>
+                                setPendingDelete({ kind: 'system', id: sys.id, label: sys.name })
+                              }
                             >
                               <Trash2 className="size-3.5 text-red-500" />
                             </Button>
@@ -881,7 +902,9 @@ export function CustomEducationStudio() {
                             <Button
                               size="sm"
                               variant="destructive"
-                              onClick={() => void handleDeleteSystem(sys.id, true)}
+                              onClick={() =>
+                                setPendingDelete({ kind: 'system', id: sys.id, label: sys.name })
+                              }
                             >
                               Delete
                             </Button>
@@ -1275,7 +1298,9 @@ export function CustomEducationStudio() {
                               <Button
                                 size="sm"
                                 variant="ghost"
-                                onClick={() => void handleDeleteExam(ex.id)}
+                                onClick={() =>
+                                  setPendingDelete({ kind: 'exam', id: ex.id, label: ex.name })
+                                }
                               >
                                 <Trash2 className="size-3.5 text-red-500" />
                               </Button>
@@ -1485,7 +1510,9 @@ export function CustomEducationStudio() {
                               size="sm"
                               variant="ghost"
                               disabled={saving}
-                              onClick={() => void handleDeleteSubject(subj.id, true)}
+                              onClick={() =>
+                                setPendingDelete({ kind: 'subject', id: subj.id, label: subj.name })
+                              }
                             >
                               <Trash2 className="size-3.5 text-red-500" />
                             </Button>
@@ -1689,6 +1716,43 @@ export function CustomEducationStudio() {
           </div>
         </TabsContent>
       </Tabs>
+
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingDelete(null);
+        }}
+        destructive
+        busy={saving}
+        title={
+          pendingDelete
+            ? isBn
+              ? `"${pendingDelete.label}" মুছে ফেলবেন?`
+              : `Delete "${pendingDelete.label}"?`
+            : 'Confirm Deletion'
+        }
+        description={
+          pendingDelete?.kind === 'system'
+            ? 'This custom education system and its nested levels, exams, subjects, chapters, and topics will be permanently deleted.'
+            : pendingDelete?.kind === 'exam'
+              ? 'This custom examination definition will be permanently deleted from your workspace.'
+              : 'This custom subject and any custom chapters or topics inside it will be permanently deleted.'
+        }
+        confirmLabel={isBn ? 'স্থায়ীভাবে মুছুন' : 'Delete Permanently'}
+        cancelLabel={isBn ? 'বাতিল করুন' : 'Cancel'}
+        onConfirm={async () => {
+          if (!pendingDelete) return;
+          const target = pendingDelete;
+          setPendingDelete(null);
+          if (target.kind === 'system') {
+            await handleDeleteSystem(target.id, true);
+          } else if (target.kind === 'exam') {
+            await handleDeleteExam(target.id);
+          } else {
+            await handleDeleteSubject(target.id, true);
+          }
+        }}
+      />
     </div>
   );
 }

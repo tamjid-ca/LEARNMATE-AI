@@ -3,11 +3,13 @@
  * Grounded in docs/PROJECT_SRS.md Sections 4.10 & 4.11 (FR-ANALYTICS-001..008, FR-NOTIFY-001..003, FR-GAME-001..004).
  */
 
+import { getTypesForNotificationCategory } from '../../config/notifications-catalog.ts';
 import {
   getOpenRouterTransport,
   type OpenRouterTransport,
 } from '../../lib/ai/openrouter-client.ts';
 import { AppError } from '../../lib/api/errors.ts';
+import { buildPaginationMeta, type PaginationMeta } from '../../lib/api/response.ts';
 import {
   assertResourceOwnership,
   type AuthenticatedActor,
@@ -16,6 +18,7 @@ import {
 import { structuredRecommendationOutputSchema } from '../../lib/validators/ai.ts';
 import {
   analyticsQuerySchema,
+  notificationsQuerySchema,
   type RecordTopicProgressInput,
   recordTopicProgressSchema,
   type UpdateNotificationsInput,
@@ -183,6 +186,9 @@ const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
   dueFlashcards: true,
   upcomingExams: true,
   learningMilestones: true,
+  quizUpdates: true,
+  aiAndDocuments: true,
+  systemAlerts: true,
 };
 
 function resolveDependencies(options?: AnalyticsServiceOptions) {
@@ -940,19 +946,82 @@ export async function recordTopicStudyActivityForStudent(
   });
 }
 
+export interface NotificationsListResponse {
+  notifications: NotificationRecord[];
+  unreadCount: number;
+  readCount: number;
+  totalAllCount: number;
+  categoryCounts: Record<'all' | 'study' | 'quiz_exam' | 'flashcards' | 'ai_documents' | 'system', number>;
+  meta: PaginationMeta & { hasMore: boolean };
+  preferences: NotificationPreferences;
+}
+
+function buildCategoryCounts(
+  typeCounts: Record<string, number>,
+  totalAllCount: number,
+): NotificationsListResponse['categoryCounts'] {
+  const sum = (types: readonly string[]) =>
+    types.reduce((acc, t) => acc + (typeCounts[t] ?? 0), 0);
+  return {
+    all: totalAllCount,
+    study: sum(['study_reminder', 'upcoming_revision', 'missed_task']),
+    quiz_exam: sum(['upcoming_exam', 'quiz_exam']),
+    flashcards: sum(['due_flashcards']),
+    ai_documents: sum(['ai_generation', 'document_processing']),
+    system: sum(['learning_milestone', 'system']),
+  };
+}
+
+/**
+ * Emits a durable deduplicated notification event directly into MongoDB `notifications`.
+ */
+export async function emitPersistentNotificationForUser(
+  userId: string,
+  input: {
+    notificationType:
+      | 'study_reminder'
+      | 'upcoming_revision'
+      | 'due_flashcards'
+      | 'upcoming_exam'
+      | 'missed_task'
+      | 'learning_milestone'
+      | 'quiz_exam'
+      | 'ai_generation'
+      | 'document_processing'
+      | 'system';
+    title: string;
+    message: string;
+    actionUrl?: string;
+    dedupeKey?: string;
+  },
+  analyticsRepo: AnalyticsRepository = getDefaultAnalyticsRepository(),
+): Promise<NotificationRecord> {
+  return analyticsRepo.createNotificationIfNotExists({
+    userId,
+    notificationType: input.notificationType,
+    title: input.title,
+    message: input.message,
+    actionUrl: input.actionUrl,
+    dedupeKey: input.dedupeKey,
+  });
+}
+
 /**
  * Synchronizes deduplicated in-app notifications from verified due flashcards, study tasks,
- * upcoming exams, and learning milestones while respecting `user.notificationPreferences` (`FR-NOTIFY-001..003`).
+ * quiz completions, upcoming exams, and learning milestones (`FR-NOTIFY-001..003`).
  */
 export async function listAndSyncNotificationsForStudent(
   actor: AuthenticatedActor | null,
   options?: AnalyticsServiceOptions,
-): Promise<{
-  notifications: NotificationRecord[];
-  unreadCount: number;
-  preferences: NotificationPreferences;
-}> {
+  rawQuery?: unknown,
+): Promise<NotificationsListResponse> {
   const authed = requireAuth(actor);
+  const parsedQuery = notificationsQuerySchema.safeParse(rawQuery ?? {});
+  if (!parsedQuery.success) {
+    throw AppError.validation('Invalid notifications filter parameters', parsedQuery.error.flatten());
+  }
+  const query = parsedQuery.data;
+
   const {
     analyticsRepo,
     userRepo,
@@ -964,152 +1033,182 @@ export async function listAndSyncNotificationsForStudent(
 
   const user = await userRepo.findById(authed.userId);
   const preferences: NotificationPreferences = user?.notificationPreferences
-    ? { ...user.notificationPreferences }
+    ? { ...DEFAULT_NOTIFICATION_PREFERENCES, ...user.notificationPreferences }
     : { ...DEFAULT_NOTIFICATION_PREFERENCES };
 
-  const todayKey = toDateKey(referenceDate);
-  const [flashcards, reviewLogs, studyPlans, studyTasks, quizAttempts, progressRecords] =
-    await Promise.all([
-      flashcardRepo.listCardsByUser(authed.userId),
-      flashcardRepo.listReviewLogsByUser(authed.userId, 50),
-      plannerRepo.listPlansByUser(authed.userId),
-      plannerRepo.listTasksByUser(authed.userId),
-      quizRepo.listAttemptsByUser(authed.userId, 50),
-      analyticsRepo.listProgressByUser(authed.userId),
-    ]);
+  if (!query.skipSync) {
+    const todayKey = toDateKey(referenceDate);
+    const [flashcards, reviewLogs, studyPlans, studyTasks, quizAttempts, progressRecords] =
+      await Promise.all([
+        flashcardRepo.listCardsByUser(authed.userId),
+        flashcardRepo.listReviewLogsByUser(authed.userId, 50),
+        plannerRepo.listPlansByUser(authed.userId),
+        plannerRepo.listTasksByUser(authed.userId),
+        quizRepo.listAttemptsByUser(authed.userId, 50),
+        analyticsRepo.listProgressByUser(authed.userId),
+      ]);
 
-  // 1. Due Flashcards notification (respects preferences.dueFlashcards)
-  if (preferences.dueFlashcards) {
-    const dueCount = flashcards.filter(
-      (c) => c.nextReviewAt.getTime() <= referenceDate.getTime() || c.masteryState === 'difficult',
-    ).length;
-    if (dueCount > 0) {
-      await analyticsRepo.createNotificationIfNotExists({
-        userId: authed.userId,
-        notificationType: 'due_flashcards',
-        title: `${dueCount} Flashcard(s) Due for Spaced-Repetition Review`,
-        message: `You have ${dueCount} active-recall card(s) ready for SM-2 review today.`,
-        actionUrl: '/flashcards',
-        dedupeKey: `due_flashcards:${todayKey}`,
-      });
-    }
-  }
-
-  // 2. Study reminders, missed tasks & upcoming revision notifications (respects preferences.studyReminders)
-  if (preferences.studyReminders) {
-    const missedTasks = studyTasks.filter(
-      (t) =>
-        (t.status === 'pending' && t.scheduledDateKey < todayKey) ||
-        t.status === 'skipped',
-    );
-    if (missedTasks.length > 0) {
-      await analyticsRepo.createNotificationIfNotExists({
-        userId: authed.userId,
-        notificationType: 'missed_task',
-        title: `${missedTasks.length} Missed or Skipped Study Task(s)`,
-        message: `You have ${missedTasks.length} task(s) from earlier dates that can be adaptively rescheduled in your Study Planner.`,
-        actionUrl: '/planner',
-        dedupeKey: `missed_task:${todayKey}`,
-      });
-    }
-
-    const todayRevisionTasks = studyTasks.filter(
-      (t) =>
-        t.status !== 'completed' &&
-        t.scheduledDateKey >= todayKey &&
-        (t.taskType === 'revision' || t.taskType === 'final_revision'),
-    );
-    if (todayRevisionTasks.length > 0) {
-      await analyticsRepo.createNotificationIfNotExists({
-        userId: authed.userId,
-        notificationType: 'upcoming_revision',
-        title: `Upcoming Revision Session: ${todayRevisionTasks[0]!.title}`,
-        message: `Scheduled revision session (${todayRevisionTasks[0]!.durationMinutes} mins) on ${todayRevisionTasks[0]!.scheduledDateKey}.`,
-        actionUrl: '/planner',
-        dedupeKey: `upcoming_revision:${todayRevisionTasks[0]!.id}`,
-      });
-    }
-
-    const todayTasks = studyTasks.filter(
-      (t) => t.status === 'pending' && t.scheduledDateKey === todayKey,
-    );
-    if (todayTasks.length > 0) {
-      await analyticsRepo.createNotificationIfNotExists({
-        userId: authed.userId,
-        notificationType: 'study_reminder',
-        title: `Daily Study Goal: ${todayTasks.length} Task(s) Scheduled Today`,
-        message: `Stay on track with your roadmap by completing today's ${todayTasks.reduce((s, t) => s + t.durationMinutes, 0)} minutes of planned study.`,
-        actionUrl: '/planner',
-        dedupeKey: `study_reminder:${todayKey}`,
-      });
-    }
-  }
-
-  // 3. Upcoming examination notifications (respects preferences.upcomingExams)
-  if (preferences.upcomingExams) {
-    const activePlan = studyPlans.find((p) => p.status === 'active');
-    if (activePlan) {
-      const daysUntilTarget = Math.ceil(
-        (activePlan.targetDate.getTime() - referenceDate.getTime()) / (24 * 60 * 60 * 1000),
-      );
-      if (daysUntilTarget >= 0 && daysUntilTarget <= 30) {
+    // 1. Due Flashcards notification (respects preferences.dueFlashcards)
+    if (preferences.dueFlashcards) {
+      const dueCount = flashcards.filter(
+        (c) => c.nextReviewAt.getTime() <= referenceDate.getTime() || c.masteryState === 'difficult',
+      ).length;
+      if (dueCount > 0) {
         await analyticsRepo.createNotificationIfNotExists({
           userId: authed.userId,
-          notificationType: 'upcoming_exam',
-          title: `Upcoming Target Date: ${activePlan.title} (${daysUntilTarget} days left)`,
-          message: `Your target examination/completion date is ${toDateKey(activePlan.targetDate)}. Current plan completion: ${activePlan.completionPercent}%.`,
+          notificationType: 'due_flashcards',
+          title: `${dueCount} Flashcard(s) Due for Spaced-Repetition Review`,
+          message: `You have ${dueCount} active-recall card(s) ready for SM-2 review today.`,
+          actionUrl: '/flashcards',
+          dedupeKey: `due_flashcards:${todayKey}`,
+        });
+      }
+    }
+
+    // 2. Study reminders, missed tasks & upcoming revision notifications
+    if (preferences.studyReminders) {
+      const missedTasks = studyTasks.filter(
+        (t) =>
+          (t.status === 'pending' && t.scheduledDateKey < todayKey) ||
+          t.status === 'skipped',
+      );
+      if (missedTasks.length > 0) {
+        await analyticsRepo.createNotificationIfNotExists({
+          userId: authed.userId,
+          notificationType: 'missed_task',
+          title: `${missedTasks.length} Missed or Skipped Study Task(s)`,
+          message: `You have ${missedTasks.length} task(s) from earlier dates that can be adaptively rescheduled in your Study Planner.`,
           actionUrl: '/planner',
-          dedupeKey: `upcoming_exam:${activePlan.id}:${todayKey}`,
+          dedupeKey: `missed_task:${todayKey}`,
+        });
+      }
+
+      const todayRevisionTasks = studyTasks.filter(
+        (t) =>
+          t.status !== 'completed' &&
+          t.scheduledDateKey >= todayKey &&
+          (t.taskType === 'revision' || t.taskType === 'final_revision'),
+      );
+      if (todayRevisionTasks.length > 0) {
+        await analyticsRepo.createNotificationIfNotExists({
+          userId: authed.userId,
+          notificationType: 'upcoming_revision',
+          title: `Upcoming Revision Session: ${todayRevisionTasks[0]!.title}`,
+          message: `Scheduled revision session (${todayRevisionTasks[0]!.durationMinutes} mins) on ${todayRevisionTasks[0]!.scheduledDateKey}.`,
+          actionUrl: '/planner',
+          dedupeKey: `upcoming_revision:${todayRevisionTasks[0]!.id}`,
+        });
+      }
+
+      const todayTasks = studyTasks.filter(
+        (t) => t.status === 'pending' && t.scheduledDateKey === todayKey,
+      );
+      if (todayTasks.length > 0) {
+        await analyticsRepo.createNotificationIfNotExists({
+          userId: authed.userId,
+          notificationType: 'study_reminder',
+          title: `Daily Study Goal: ${todayTasks.length} Task(s) Scheduled Today`,
+          message: `Stay on track with your roadmap by completing today's ${todayTasks.reduce((s, t) => s + t.durationMinutes, 0)} minutes of planned study.`,
+          actionUrl: '/planner',
+          dedupeKey: `study_reminder:${todayKey}`,
+        });
+      }
+    }
+
+    // 3. Upcoming examination & recent quiz performance notifications
+    if (preferences.upcomingExams) {
+      const activePlan = studyPlans.find((p) => p.status === 'active');
+      if (activePlan) {
+        const daysUntilTarget = Math.ceil(
+          (activePlan.targetDate.getTime() - referenceDate.getTime()) / (24 * 60 * 60 * 1000),
+        );
+        if (daysUntilTarget >= 0 && daysUntilTarget <= 30) {
+          await analyticsRepo.createNotificationIfNotExists({
+            userId: authed.userId,
+            notificationType: 'upcoming_exam',
+            title: `Upcoming Target Date: ${activePlan.title} (${daysUntilTarget} days left)`,
+            message: `Your target examination/completion date is ${toDateKey(activePlan.targetDate)}. Current plan completion: ${activePlan.completionPercent}%.`,
+            actionUrl: '/planner',
+            dedupeKey: `upcoming_exam:${activePlan.id}:${todayKey}`,
+          });
+        }
+      }
+    }
+
+    if (preferences.quizUpdates !== false) {
+      const submittedQuizzes = quizAttempts.filter((a) => a.status === 'submitted');
+      const latestAttempt = submittedQuizzes[0];
+      if (latestAttempt) {
+        await analyticsRepo.createNotificationIfNotExists({
+          userId: authed.userId,
+          notificationType: 'quiz_exam',
+          title: `Quiz Completed (${Math.round(latestAttempt.accuracyPercent)}% accuracy)`,
+          message: `Review detailed question explanations and weak-topic diagnostics from your recent assessment.`,
+          actionUrl: '/quizzes',
+          dedupeKey: `quiz_attempt_summary:${latestAttempt.id}`,
+        });
+      }
+    }
+
+    // 4. Learning milestone notifications
+    if (preferences.learningMilestones) {
+      const completedTopicsCount = progressRecords.filter((p) => p.isCompleted).length;
+      const submittedQuizCount = quizAttempts.filter((a) => a.status === 'submitted').length;
+      if (completedTopicsCount >= 1 || submittedQuizCount >= 1 || reviewLogs.length >= 5) {
+        await analyticsRepo.createNotificationIfNotExists({
+          userId: authed.userId,
+          notificationType: 'learning_milestone',
+          title: 'Learning Milestone Unlocked!',
+          message: `You have completed ${completedTopicsCount} topic(s), ${submittedQuizCount} quiz attempt(s), and ${reviewLogs.length} flashcard review(s). Keep building your mastery!`,
+          actionUrl: '/analytics',
+          dedupeKey: `milestone:summary:${completedTopicsCount}:${submittedQuizCount}`,
         });
       }
     }
   }
 
-  // 4. Learning milestone notifications (respects preferences.learningMilestones)
-  if (preferences.learningMilestones) {
-    const completedTopicsCount = progressRecords.filter((p) => p.isCompleted).length;
-    const submittedQuizCount = quizAttempts.filter((a) => a.status === 'submitted').length;
-    if (completedTopicsCount >= 1 || submittedQuizCount >= 1 || reviewLogs.length >= 5) {
-      await analyticsRepo.createNotificationIfNotExists({
-        userId: authed.userId,
-        notificationType: 'learning_milestone',
-        title: 'Learning Milestone Unlocked!',
-        message: `You have completed ${completedTopicsCount} topic(s), ${submittedQuizCount} quiz attempt(s), and ${reviewLogs.length} flashcard review(s). Keep building your mastery!`,
-        actionUrl: '/analytics',
-        dedupeKey: `milestone:summary:${completedTopicsCount}:${submittedQuizCount}`,
-      });
-    }
-  }
-
-  const notifications = await analyticsRepo.listNotificationsByUser(authed.userId, 50);
-  const unreadCount = notifications.filter((n) => !n.isRead).length;
+  const pageResult = await analyticsRepo.listNotificationsPaginated(authed.userId, {
+    status: query.status,
+    types: getTypesForNotificationCategory(query.category),
+    page: query.page,
+    limit: query.limit,
+  });
+  const baseMeta = buildPaginationMeta(query.page, query.limit, pageResult.total);
 
   return {
-    notifications,
-    unreadCount,
+    notifications: pageResult.items,
+    unreadCount: pageResult.unreadCount,
+    readCount: pageResult.readCount,
+    totalAllCount: pageResult.totalAllCount,
+    categoryCounts: buildCategoryCounts(pageResult.typeCounts, pageResult.totalAllCount),
+    meta: {
+      ...baseMeta,
+      hasMore: query.page < baseMeta.totalPages,
+    },
     preferences,
   };
 }
 
 /**
- * Marks notifications as read or updates the student's notification preferences (`FR-NOTIFY-001..003`).
+ * Updates notification read state, dismisses notifications, or updates preferences (`FR-NOTIFY-001..003`).
  */
 export async function updateNotificationsForStudent(
   actor: AuthenticatedActor | null,
   rawInput: unknown,
   options?: AnalyticsServiceOptions,
-): Promise<{
-  notifications: NotificationRecord[];
-  unreadCount: number;
-  preferences: NotificationPreferences;
-}> {
+  rawQuery?: unknown,
+): Promise<NotificationsListResponse> {
   const authed = requireAuth(actor);
   const input: UpdateNotificationsInput = updateNotificationsSchema.parse(rawInput);
+  const parsedQuery = notificationsQuerySchema.safeParse(rawQuery ?? {});
+  const query = parsedQuery.success
+    ? parsedQuery.data
+    : { status: 'all' as const, category: 'all' as const, page: 1, limit: 15 };
   const { analyticsRepo, userRepo } = resolveDependencies(options);
 
   const user = await userRepo.findById(authed.userId);
   let preferences: NotificationPreferences = user?.notificationPreferences
-    ? { ...user.notificationPreferences }
+    ? { ...DEFAULT_NOTIFICATION_PREFERENCES, ...user.notificationPreferences }
     : { ...DEFAULT_NOTIFICATION_PREFERENCES };
 
   if (input.action === 'mark_read') {
@@ -1119,8 +1218,24 @@ export async function updateNotificationsForStudent(
     }
     assertResourceOwnership(authed, existing.userId);
     await analyticsRepo.markNotificationRead(existing.id, authed.userId);
+  } else if (input.action === 'mark_unread') {
+    const existing = await analyticsRepo.findNotificationById(input.notificationId);
+    if (!existing) {
+      throw new AppError('NOT_FOUND', 'Notification not found.', 404);
+    }
+    assertResourceOwnership(authed, existing.userId);
+    await analyticsRepo.markNotificationUnread(existing.id, authed.userId);
   } else if (input.action === 'mark_all_read') {
     await analyticsRepo.markAllNotificationsRead(authed.userId);
+  } else if (input.action === 'dismiss') {
+    const existing = await analyticsRepo.findNotificationById(input.notificationId);
+    if (!existing) {
+      throw new AppError('NOT_FOUND', 'Notification not found.', 404);
+    }
+    assertResourceOwnership(authed, existing.userId);
+    await analyticsRepo.deleteNotification(existing.id, authed.userId);
+  } else if (input.action === 'clear_read') {
+    await analyticsRepo.deleteReadNotifications(authed.userId);
   } else if (input.action === 'update_preferences') {
     preferences = {
       ...preferences,
@@ -1133,12 +1248,24 @@ export async function updateNotificationsForStudent(
     }
   }
 
-  const notifications = await analyticsRepo.listNotificationsByUser(authed.userId, 50);
-  const unreadCount = notifications.filter((n) => !n.isRead).length;
+  const pageResult = await analyticsRepo.listNotificationsPaginated(authed.userId, {
+    status: query.status,
+    types: getTypesForNotificationCategory(query.category),
+    page: query.page,
+    limit: query.limit,
+  });
+  const baseMeta = buildPaginationMeta(query.page, query.limit, pageResult.total);
 
   return {
-    notifications,
-    unreadCount,
+    notifications: pageResult.items,
+    unreadCount: pageResult.unreadCount,
+    readCount: pageResult.readCount,
+    totalAllCount: pageResult.totalAllCount,
+    categoryCounts: buildCategoryCounts(pageResult.typeCounts, pageResult.totalAllCount),
+    meta: {
+      ...baseMeta,
+      hasMore: query.page < baseMeta.totalPages,
+    },
     preferences,
   };
 }

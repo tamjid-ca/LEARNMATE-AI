@@ -21,6 +21,7 @@ import { Input } from '@/components/ui/input';
 import { Tooltip } from '@/components/ui/tooltip';
 import { NavIcon } from './nav-icon';
 import { ThemeLanguageControls } from './theme-language-controls';
+import { HeaderNotificationBell } from '@/components/notifications/header-notification-bell';
 
 export function AppShell({
   mode,
@@ -250,6 +251,9 @@ export function AppShell({
           </div>
 
           <div className="flex items-center gap-3">
+            {mode === 'student' ? (
+              <HeaderNotificationBell label={language === 'bn' ? 'বিজ্ঞপ্তি' : 'Notifications'} />
+            ) : null}
             <ThemeLanguageControls />
             <Link href="/login" className="hidden sm:inline-flex">
               <Button variant="secondary" size="sm">

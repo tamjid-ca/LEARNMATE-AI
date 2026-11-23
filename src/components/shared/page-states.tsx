@@ -2,7 +2,8 @@
 
 import * as React from 'react';
 import Link from 'next/link';
-import { AlertTriangle, Inbox, RefreshCw, Sparkles } from 'lucide-react';
+import { AlertCircle, AlertTriangle, CheckCircle2, Inbox, Info, RefreshCw, Sparkles } from 'lucide-react';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -222,5 +223,50 @@ export function WorkspaceModuleScaffold({
         </TabsContent>
       </Tabs>
     </div>
+  );
+}
+
+/**
+ * Compact inline feedback banner built on shadcn Alert for validation,
+ * contextual guidance, and retry prompts within forms and workspaces.
+ */
+export function InlineAlert({
+  variant = 'info',
+  title,
+  description,
+  action,
+  className,
+}: {
+  variant?: 'info' | 'warning' | 'destructive' | 'success';
+  title: string;
+  description?: string;
+  action?: React.ReactNode;
+  className?: string;
+}) {
+  const Icon =
+    variant === 'destructive'
+      ? AlertCircle
+      : variant === 'warning'
+        ? AlertTriangle
+        : variant === 'success'
+          ? CheckCircle2
+          : Info;
+
+  const toneClasses =
+    variant === 'destructive'
+      ? ''
+      : variant === 'warning'
+        ? 'border-amber-500/40 bg-amber-500/10 text-amber-950 dark:text-amber-100 [&>svg]:text-amber-600 dark:[&>svg]:text-amber-400'
+        : variant === 'success'
+          ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-950 dark:text-emerald-100 [&>svg]:text-emerald-600 dark:[&>svg]:text-emerald-400'
+          : 'border-sky-500/40 bg-sky-500/10 text-sky-950 dark:text-sky-100 [&>svg]:text-sky-600 dark:[&>svg]:text-sky-400';
+
+  return (
+    <Alert variant={variant === 'destructive' ? 'destructive' : 'default'} className={`${toneClasses} ${className ?? ''}`}>
+      <Icon className="size-4" />
+      <AlertTitle>{title}</AlertTitle>
+      {description ? <AlertDescription>{description}</AlertDescription> : null}
+      {action ? <div className="col-start-2 mt-2">{action}</div> : null}
+    </Alert>
   );
 }

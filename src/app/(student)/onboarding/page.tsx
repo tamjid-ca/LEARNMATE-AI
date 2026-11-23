@@ -16,6 +16,7 @@ import {
   type EducationPresetKey,
 } from '@/config/education-presets';
 import { useUIPreferences } from '@/components/providers/app-providers';
+import { notify } from '@/lib/ui/toast';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -167,15 +168,23 @@ export default function StudentOnboardingPage() {
       });
       const payload = await res.json();
       if (!res.ok || !payload.success) {
-        setError(payload?.error?.message ?? 'Please review your onboarding selections');
+        const message = payload?.error?.message ?? 'Please review your onboarding selections';
+        setError(message);
+        notify.error(message);
         return;
       }
 
       setLanguage(preferredLanguage);
+      notify.success(
+        preferredLanguage === 'bn'
+          ? 'শিক্ষাব্যবস্থা ও অধ্যয়ন প্রোফাইল সংরক্ষিত হয়েছে!'
+          : 'Study profile & education track saved!',
+      );
       router.push('/dashboard');
       router.refresh();
-    } catch {
+    } catch (err) {
       setError('Network error while saving onboarding preferences.');
+      notify.error(err, 'Network error while saving onboarding preferences.');
     } finally {
       setSubmitting(false);
     }

@@ -4,7 +4,7 @@
  */
 
 import { z } from 'zod';
-import { LANGUAGES } from '../../types/domain.ts';
+import { LANGUAGES, NOTIFICATION_CATEGORIES } from '../../types/domain.ts';
 
 export const recordTopicProgressSchema = z.object({
   topicId: z.string().trim().min(1),
@@ -19,7 +19,23 @@ export const notificationPreferencesPatchSchema = z.object({
   dueFlashcards: z.boolean().optional(),
   upcomingExams: z.boolean().optional(),
   learningMilestones: z.boolean().optional(),
+  quizUpdates: z.boolean().optional(),
+  aiAndDocuments: z.boolean().optional(),
+  systemAlerts: z.boolean().optional(),
 });
+
+export const notificationsQuerySchema = z.object({
+  status: z.enum(['all', 'unread', 'read']).default('all'),
+  category: z.enum(NOTIFICATION_CATEGORIES).default('all'),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(50).default(15),
+  skipSync: z
+    .union([z.boolean(), z.enum(['true', 'false'])])
+    .transform((v) => v === true || v === 'true')
+    .optional(),
+});
+
+export type NotificationsQueryInput = z.infer<typeof notificationsQuerySchema>;
 
 export const updateNotificationsSchema = z.discriminatedUnion('action', [
   z.object({
@@ -27,7 +43,18 @@ export const updateNotificationsSchema = z.discriminatedUnion('action', [
     notificationId: z.string().trim().min(1),
   }),
   z.object({
+    action: z.literal('mark_unread'),
+    notificationId: z.string().trim().min(1),
+  }),
+  z.object({
     action: z.literal('mark_all_read'),
+  }),
+  z.object({
+    action: z.literal('dismiss'),
+    notificationId: z.string().trim().min(1),
+  }),
+  z.object({
+    action: z.literal('clear_read'),
   }),
   z.object({
     action: z.literal('update_preferences'),
